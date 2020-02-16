@@ -1,0 +1,11 @@
+.*.swp
+.*.swo
+*.pyc
+*.json
+*.jsonl
+*.db
+*.bak
+*.dump
+glove/*
+saved_models/*
+!saved_models/.keep
