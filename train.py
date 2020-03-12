@@ -1,15 +1,16 @@
+import data_util
+from models.beam import Beam
+# from models.sqlnet.scripts.model import SQLNet
+# from models.cdseq2seq.scripts import CDSeq2Seq
+
 import os
 import sys
-
-import numpy as np
 import random
+import argparse
+import json
+import numpy as np
 import torch
 
-import argparse
-import data_util
-
-from models.sqlnet.scripts.model import SQLNet
-from models.cdseq2seq.scripts import CDSeq2Seq
 # from models.editsql.scripts import EditSQL
 
 
@@ -35,7 +36,7 @@ def load_dataset(dataset_name):
     # read database schema
     # TODO: why is simple, what is remove_from
     def read_database_schema(self, database_schema_filename):
-        with open(database_schema_filename, "r") as f:
+        with open(database_schema_filename, 'r') as f:
             database_schema = json.load(f)
 
         database_schema_dict = {}

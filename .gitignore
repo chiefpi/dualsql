@@ -7,5 +7,5 @@
 *.bak
 *.dump
 glove/*
-saved_models/*
-!saved_models/.keep
+data/*
+misc/*
