@@ -1,9 +1,10 @@
-from utils.constants import BOS, EOS, MAX_DECODE_LENGTH
-from utils.tensors import tile, lens2mask
-from beam import Beam, GNMTGlobalScorer
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from utils.constants import BOS, EOS, MAX_DECODE_LENGTH
+from utils.tensors import tile, lens2mask
+from beam import Beam, GNMTGlobalScorer
 
 
 class Seq2Seq(nn.Module):
@@ -75,7 +76,6 @@ class Seq2Seq(nn.Module):
     #     for pad_token_idx in pad_tgt_idxs:
     #         model.tgt_embed.embed.weight.data[pad_token_idx].zero_()
 
-
     def forward(self, src_inputs, src_lens, tgt_inputs):
         # mask out unknown tokens
         token_mask = src_inputs >= self.src_vocab
@@ -117,7 +117,6 @@ class Seq2Seq(nn.Module):
 
         return out
 
-
     def decode_one_step(self, ys, hidden_states, memory, src_mask):
         """
         @ys: bsize x 1
@@ -142,7 +141,6 @@ class Seq2Seq(nn.Module):
         out = F.log_softmax(self.generator(feats), dim=-1)
 
         return out.squeeze(dim=1), hidden_states
-
 
     def decode_beam(self, hidden_states, memory, src_mask, vocab,
             beam_size=5, n_best=1, alpha=0.6, length_pen='avg'):
@@ -226,15 +224,12 @@ class Seq2Seq(nn.Module):
 
         return results
 
-
     def pad_embedding_grad_zero(self):
         self.src_embed.pad_embedding_grad_zero()
         self.tgt_embed.pad_embedding_grad_zero()
 
-
     def load_model(self, load_dir):
         self.load_state_dict(torch.load(open(load_dir, 'rb'), map_location=lambda storage, loc: storage))
-
 
     def save_model(self, save_dir):
         torch.save(self.state_dict(), open(save_dir, 'wb'))

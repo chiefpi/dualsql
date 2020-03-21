@@ -1,6 +1,8 @@
-import sys, os
-from .constants import BOS, EOS, PAD, UNK
-from .bleu import get_bleu_score
+import sys
+import os
+from constants import BOS, EOS, PAD, UNK
+from bleu import get_bleu_score
+
 
 class Domain():
 

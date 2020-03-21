@@ -1,8 +1,10 @@
+import numpy as np
+import torch
+
 from utils.constants import *
 from utils.example import Example
 from utils.tensors import lens2mask
-import numpy as np
-import torch
+
 
 class RewardModel():
 

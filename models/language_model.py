@@ -1,11 +1,9 @@
-"""
-TODO: rewrite
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from utils.tensors import lens2mask
+
 
 class LanguageModel(nn.Module):
     """
@@ -37,11 +35,9 @@ class LanguageModel(nn.Module):
             for pad_token_idx in pad_token_idxs:
                 self.encoder.weight.data[pad_token_idx].zero_()
 
-
     def pad_embedding_grad_zero(self):
         for pad_token_idx in self.pad_token_idxs:
             self.encoder.weight.grad[pad_token_idx].zero_()
-
 
     def forward(self, input_feats, lens):
         input_feats, lens = input_feats[:, :-1], lens - 1
@@ -51,11 +47,10 @@ class LanguageModel(nn.Module):
         scores = F.log_softmax(decoded, dim=-1)
         return scores
 
-
     def sent_logprobability(self, input_feats, lens):
         """
         Given sentences, calculate its length-normalized log-probability
-        Sequence must contain <s> and </s> symbol
+        Sequence must contain BOS and EOS symbol
         lens: length tensor
         """
         lens = lens - 1
@@ -64,14 +59,13 @@ class LanguageModel(nn.Module):
         output, _ = self.lstm(emb, lens)
         decoded = self.decoder(self.affine(self.dropout_layer(output)))
         scores = F.log_softmax(decoded, dim=-1)
+
         log_prob = torch.gather(scores, 2, output_feats.unsqueeze(-1)).contiguous().view(output.size(0), output.size(1))
         sent_log_prob = torch.sum(log_prob * lens2mask(lens).float(), dim=-1)
         return sent_log_prob / lens.float()
 
-
     def load_model(self, load_dir):
         self.load_state_dict(torch.load(open(load_dir, 'rb'), map_location=lambda storage, loc: storage))
-
 
     def save_model(self, save_dir):
         torch.save(self.state_dict(), open(save_dir, 'wb'))

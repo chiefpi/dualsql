@@ -1,17 +1,19 @@
 import torch
+
 from utils.penalty import PenaltyBuilder
 from utils.constants import *
 
+
 class Beam(object):
     """
-        Class for managing the internals of the beam search process.
-        Takes care of beams, back pointers, and scores. (Revised from OpenNMT.)
-        @args:
-            size (int): beam size
-            vocab (dict): contains indices of padding, beginning, and ending.
-            min_length (int): minimum length to generate
-            global_scorer (:obj:`GlobalScorer`)
-            device (torch.device)
+    Class for managing the internals of the beam search process.
+    Takes care of beams, back pointers, and scores. (Revised from OpenNMT.)
+    @args:
+        size (int): beam size
+        vocab (dict): contains indices of padding, beginning, and ending.
+        min_length (int): minimum length to generate
+        global_scorer (:obj:`GlobalScorer`)
+        device (torch.device)
     """
 
     def __init__(self, size, vocab, min_length=2,

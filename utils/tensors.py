@@ -1,10 +1,9 @@
 import torch
 
-
 def lens2mask(lens):
     """
-    @lens: 0-d tensor of lengths of ?
-    @return: masks of actual words per ?
+    @lens: bsize
+    @return: masks of length, bsize x max_len
     """
     bsize = lens.numel()
     max_len = lens.max()
@@ -16,7 +15,6 @@ def lens2mask(lens):
     masks.requires_grad = False
 
     return masks
-
 
 def tile(x, count, dim=0):
     """

@@ -1,7 +1,8 @@
+import sys
+import os
 import numpy as np
-import sys, os
-# from lexicon import Lexicon
-from .domain import Domain
+
+from domain import Domain
 
 def split_dataset(dataset, split_ratio=1.0):
     assert split_ratio >= 0. and split_ratio <= 1.0

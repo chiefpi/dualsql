@@ -1,5 +1,6 @@
 import torch
 
+
 class PenaltyBuilder(object):
     """
     Returns the Length Penalty function for Beam Search.
