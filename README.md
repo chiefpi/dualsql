@@ -1,13 +1,12 @@
-# Text-to-SQL Framework
+# DualSQL
 
-A refined version.
+EditSQL with dual learning mechanism.
 
-## Preparation
+## Data Preparation
 
-Download the following datasets.
+Download the following datasets (excluding database)
 
 * glove/glove.840B.300d.txt
-* data/database
 * data/spider
 * data/sparc
 * data/cosql
@@ -16,28 +15,24 @@ Download `nltk.punkt`.
 
 ## Preprocess
 
-why?
+```bash
+python preprocess.py --dataset=cosql --remove_from
+```
 
 ## Train
 
-
+```bash
+bash train.sh
+```
 
 ## Evaluate
 
+Calculate the question match and the interaction match.
 
-
-## Available Models
-
-### SQLNet
-
-
-
-### CD-Seq2Seq
-
-
-
-### EditSQL
-
+```bash
+# etype=match
+python3 postprocess_eval.py --dataset=cosql --split=dev --pred_file log/valid_use_predicted_queries_predictions.json --remove_from
+```
 
 ## Experiment Results
 

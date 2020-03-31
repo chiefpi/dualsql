@@ -1,10 +1,23 @@
-CUDA_VISIBLE DEVICES=0 python3 train.py \
+CUDA_VISIBLE DEVICES=0 python3 scripts/train_lm.py \
     --dataset="sparc" \
-    --model="cdseq2seq"
-
-python3 eval.py \
-    --gold="" \
-    --pred="" \
-    --db="data/databse" \
-    --table="" \
-    --etype=""
+    --input_key="utterance" \
+    --state_positional_embeddings=1 \
+    --discourse_level_lstm=1 \
+    --use_utterance_attention=1 \
+    --use_query_attention=1 \
+    --use_schema_attention=1 \
+    --use_bert=1 \
+    --bert_type_abb=uS \
+    --fine_tune_bert=1 \
+    --use_schema_self_attention=1 \
+    --use_schema_encoder_2=1 \
+    --interaction_level=1 \
+    --reweight_batch=1 \
+    --freeze=1 \
+    --train=1 \
+    --logdir=$LOGDIR \
+    --evaluate=1 \
+    --evaluate_split="valid"
+CUDA_VISIBLE DEVICES=0 python3 scripts/train_qg.py
+CUDA_VISIBLE DEVICES=0 python3 scripts/train_sp.py
+CUDA_VISIBLE DEVICES=0 python3 scripts/train_dual.py

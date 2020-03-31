@@ -8,4 +8,4 @@
 *.dump
 glove/*
 data/*
-misc/*
+misc

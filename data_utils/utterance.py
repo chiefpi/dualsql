@@ -1,7 +1,7 @@
 """ Contains the Utterance class. """
 
-from . import sql_util
-from . import tokenizers
+import sql_util
+import tokenizers
 
 ANON_INPUT_KEY = "cleaned_nl"
 OUTPUT_KEY = "sql"

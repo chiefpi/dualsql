@@ -1,18 +1,29 @@
+"""Contains a main function for training and/or evaluating a model."""
+
 import os
 import sys
 import random
 import argparse
-import json
-import numpy as np
+
 import torch
+import numpy as np
 
 import data_util
-from models.beam import Beam
+from data_util import atis_data
+from model.language_model import LanguageModel
+from logger import Logger
+from model_util import Metrics, evaluate_utterance_sample, evaluate_interaction_sample, \
+    train_epoch_with_utterances, train_epoch_with_interactions, evaluate_using_predicted_queries
 
 
 # fix seeds
 np.random.seed(0)
 random.seed(0)
+
+
+VALID_EVAL_METRICS = [Metrics.LOSS, Metrics.TOKEN_ACCURACY, Metrics.STRING_ACCURACY]
+TRAIN_EVAL_METRICS = [Metrics.LOSS, Metrics.TOKEN_ACCURACY, Metrics.STRING_ACCURACY]
+FINAL_EVAL_METRICS = [Metrics.STRING_ACCURACY, Metrics.TOKEN_ACCURACY]
 
 
 def get_params():

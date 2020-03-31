@@ -3,9 +3,9 @@ import pymysql
 import random
 import signal
 import sqlparse
-from . import util
+import util
 
-from .snippets import Snippet
+from snippets import Snippet
 from sqlparse import tokens as token_types
 from sqlparse import sql as sql_types
 

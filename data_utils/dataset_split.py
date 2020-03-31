@@ -1,10 +1,10 @@
-""" Utility functions for loading and processing ATIS data.
+""" Utility functions for loading and processing data.
 """
 import os
 import pickle
 
 class DatasetSplit:
-    """Stores a split of the ATIS dataset.
+    """Stores a split of the Text-to-SQL dataset.
 
     Attributes:
         examples (list of Interaction): Stores the examples in the split.

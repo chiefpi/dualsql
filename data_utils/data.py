@@ -1,22 +1,22 @@
-"""Utility functions for loading and processing data."""
+"""Utility functions for loading and processing data.
+"""
 import os
 import random
 import json
 
 import anonymization as anon
-import atis_batch
+import batch
 import dataset_split as ds
 
 from interaction import load_function
 from entities import NLtoSQLDict
 from vocab import Vocabulary
 
-ENTITIES_FILENAME = 'data/entities.txt'
-ANONYMIZATION_FILENAME = 'data/anonymization.txt'
+ENTITIES_FILENAME = './data/entities.txt'
+ANONYMIZATION_FILENAME = './data/anonymization.txt'
 
-class Dataset():
-    """
-    Contains the Text-to-SQL data.
+class Corpus():
+    """Contains the Text-to-SQL data.
     """
     def __init__(self, params):
         self.anonymizer = None
@@ -59,14 +59,14 @@ class Dataset():
 
             all_input_seqs = train_input_seqs + valid_input_seqs
 
-            self.input_vocabulary = ATISVocabulary(
+            self.input_vocabulary = Vocabulary(
                 all_input_seqs,
                 os.path.join(params.data_directory, params.input_vocabulary_filename),
                 params,
                 is_input='input',
                 anonymizer=self.anonymizer if params.anonymization_scoring else None)
 
-            self.output_vocabulary_schema = ATISVocabulary(
+            self.output_vocabulary_schema = Vocabulary(
                 column_names_embedder_input,
                 os.path.join(params.data_directory, 'schema_'+params.output_vocabulary_filename),
                 params,
@@ -90,7 +90,7 @@ class Dataset():
               for i in range(len(out_vocab_ordered)):
                 all_output_seqs.append(out_vocab_ordered[:i+1])
 
-            self.output_vocabulary = ATISVocabulary(
+            self.output_vocabulary = Vocabulary(
                 all_output_seqs,
                 os.path.join(params.data_directory, params.output_vocabulary_filename),
                 params,
@@ -123,7 +123,7 @@ class Dataset():
                 self.train_data.get_ex_properties(
                     lambda i: i.input_seqs()))
 
-            self.input_vocabulary = ATISVocabulary(
+            self.input_vocabulary = Vocabulary(
                 train_input_seqs,
                 os.path.join(params.data_directory, params.input_vocabulary_filename),
                 params,
@@ -135,7 +135,7 @@ class Dataset():
                 self.train_data.get_ex_properties(
                     lambda i: i.output_seqs()))
 
-            self.output_vocabulary = ATISVocabulary(
+            self.output_vocabulary = Vocabulary(
                 train_output_seqs,
                 os.path.join(params.data_directory, params.output_vocabulary_filename),
                 params,

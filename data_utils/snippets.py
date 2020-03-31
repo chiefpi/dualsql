@@ -56,11 +56,12 @@ def snippet_index(token):
 
 class Snippet():
     """ Contains a snippet. """
-    def __init__(self,
-                 sequence,
-                 startpos,
-                 sql,
-                 age=0):
+    def __init__(
+            self,
+            sequence,
+            startpos,
+            sql,
+            age=0):
         self.sequence = sequence
         self.startpos = startpos
         self.sql = sql

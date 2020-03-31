@@ -1,3 +1,4 @@
+# TODO: delete this
 BOS = '<s>'
 EOS = '</s>'
 PAD = '<pad>'

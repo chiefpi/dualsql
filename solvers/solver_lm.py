@@ -6,9 +6,7 @@ from utils.solver.solver_base import Solver
 from utils.batch import get_minibatch
 
 class LMSolver(Solver):
-    '''
-    For traditional RNN-based Language Model
-    '''
+    
     def __init__(self, *args, **kargs):
         self.side = kargs.pop('side', 'question')
         super(LMSolver, self).__init__(*args, **kargs)
