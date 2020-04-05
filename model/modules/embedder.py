@@ -4,11 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import data_util.snippets as snippet_handler
-import data_util.vocabulary as vocabulary_handler
+import data_utils.snippet as snippet_handler
+import data_utils.vocabulary as vocabulary_handler
 
 class Embedder(nn.Module):
-    """ Embeds tokens. """
+    """Embeds tokens."""
     def __init__(self, embedding_size, name="", initializer=None, vocabulary=None, num_tokens=-1, anonymizer=None, freeze=False, use_unk=True):
         super().__init__()
 
@@ -75,7 +75,7 @@ class Embedder(nn.Module):
 
 
 def bow_snippets(token, snippets, output_embedder, input_schema):
-    """ Bag of words embedding for snippets"""
+    """Bag of words embedding for snippets"""
     assert snippet_handler.is_snippet(token) and snippets
 
     snippet_sequence = []

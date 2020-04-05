@@ -127,8 +127,8 @@ def load_word_embeddings(input_vocabulary, output_vocabulary, output_vocabulary_
     return input_vocabulary_embeddings, output_vocabulary_embeddings, output_vocabulary_schema_embeddings, input_embedding_size
 
 class Seq2Seq(nn.Module):
-    """ Sequence-to-sequence model for predicting a SQL query given an utterance
-        and an interaction prefix.
+    """Sequence-to-sequence model for predicting a SQL query given an utterance
+    and an interaction prefix.
     """
 
     def __init__(

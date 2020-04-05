@@ -1,36 +1,34 @@
 """Symmetric model for dual learning."""
-
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-import torch_utils
 
-import data_util.snippets as snippet_handler
-import data_util.sql_util
-import data_util.vocabulary as vocab
-import data_util.tokenizers
-from data_util.vocabulary import EOS_TOK, UNK_TOK
-from data_util.utterance import ANON_INPUT_KEY
+import torch_utils
+import utils_bert
+
+from data_utils import snippet as snippet_handler
+from data_utils import sql_util
+from data_utils import vocabulary as vocab
+from data_utils import tokenizer
+from data_utils import batch
+from data_utils.vocabulary import EOS_TOK, UNK_TOK
+from data_utils.text import ANON_INPUT_KEY
 
 from modules.text_schema_encoder import TextSchemaEncoder
+from modules.interaction_encoder import InteractionEncoder
+from modules.decoder import QueryDecoder
+from modules.decoder import UtteranceDecoder
+
 from modules.decoder import SequencePredictorWithSchema
 from modules.token_predictor import construct_token_predictor
 from model import Seq2Seq, encode_snippets_with_states, get_token_indices
 
-import utils_bert
-
-import data_util.atis_batch
-
-
-# LIMITED_INTERACTIONS = {"raw/atis2/12-1.1/ATIS2/TEXT/TRAIN/SRI/QS0/1": 22,
-#                         "raw/atis3/17-1.1/ATIS3/SP_TRN/MIT/8K7/5": 14,
-#                         "raw/atis2/12-1.1/ATIS2/TEXT/TEST/NOV92/770/5": -1}
 
 END_OF_INTERACTION = {"quit", "exit", "done"}
 
 
 class DualSQL(Seq2Seq):
-    """ Interaction model, where an interaction is processed all at once.
-    """
+    """Interaction model, where an interaction is processed all at once."""
 
     def __init__(
             self,
@@ -49,25 +47,30 @@ class DualSQL(Seq2Seq):
             anonymizer)
 
         self.text_schema_encoder = TextSchemaEncoder(params)
+        self.interaction_encoder = InteractionEncoder(params)
+        if self.utterance2query:
+            self.decoder = QueryDecoder(params)
+        else:
+            self.decoder = UtteranceDecoder(params)
 
         self.token_predictor = construct_token_predictor(
             params,
             output_vocabulary,
-            self.utterance_attention_key_size,
+            self.text_attention_key_size,
             self.schema_attention_key_size,
             self.final_snippet_size,
             anonymizer)
 
         # Use schema_attention in decoder
-        decoder_input_size = params.output_embedding_size + self.utterance_attention_key_size + self.schema_attention_key_size + params.encoder_state_size
+        decoder_input_size = params.output_embedding_size + self.text_attention_key_size + self.schema_attention_key_size + params.encoder_state_size
         self.decoder = SequencePredictorWithSchema(params, decoder_input_size, self.output_embedder, self.column_name_token_embedder, self.token_predictor)
 
     def predict_turn(
             self,
-            utterance_final_state,
+            text_final_state,
             input_hidden_states,
             schema_states,
-            max_generation_length,
+            max_gen_length,
             gold_query=None,
             snippets=None,
             input_sequence=None,
@@ -76,88 +79,62 @@ class DualSQL(Seq2Seq):
             input_schema=None,
             feed_gold_tokens=False,
             training=False):
-        """ Gets a prediction for a single turn -- calls decoder and updates loss, etc.
-
-        TODO: this can probably be split into two methods, one that just predicts
-            and another that computes the loss. YEAH.
+        """Predicts for a single turn.
         """
         predicted_sequence = []
         fed_sequence = []
-        loss = None
         token_accuracy = 0.
 
-        if self.params.use_encoder_attention:
-            schema_attention = self.utterance2schema_attention_module(torch.stack(schema_states,dim=0), input_hidden_states).vector # input_value_size x len(schema)
-            utterance_attention = self.schema2utterance_attention_module(torch.stack(input_hidden_states,dim=0), schema_states).vector # schema_value_size x len(input)
+        # if feed_gold_tokens:
+        #     decoder_results = self.decoder(
+        #         text_final_state,
+        #         input_hidden_states,
+        #         schema_states,
+        #         max_gen_length,
+        #         gold_sequence=gold_query,
+        #         input_sequence=input_sequence,
+        #         previous_queries=previous_queries,
+        #         previous_query_states=previous_query_states,
+        #         input_schema=input_schema,
+        #         snippets=snippets,
+        #         dropout_amount=self.dropout)
 
-            if schema_attention.dim() == 1:
-                schema_attention = schema_attention.unsqueeze(1)
-            if utterance_attention.dim() == 1:
-                utterance_attention = utterance_attention.unsqueeze(1)
+        #     all_scores = []
+        #     all_alignments = []
+        #     for prediction in decoder_results.predictions:
+        #         scores = F.softmax(prediction.scores, dim=0)
+        #         alignments = prediction.aligned_tokens
+        #         if self.params.use_previous_query and self.params.use_copy_switch and len(previous_queries) > 0:
+        #             query_scores = F.softmax(prediction.query_scores, dim=0)
+        #             copy_switch = prediction.copy_switch
+        #             scores = torch.cat([scores * (1 - copy_switch), query_scores * copy_switch], dim=0)
+        #             alignments = alignments + prediction.query_tokens
 
-            new_schema_states = torch.cat([torch.stack(schema_states, dim=1), schema_attention], dim=0) # (input_value_size+schema_value_size) x len(schema)
-            schema_states = list(torch.split(new_schema_states, split_size_or_sections=1, dim=1))
-            schema_states = [schema_state.squeeze() for schema_state in schema_states]
+        #         all_scores.append(scores)
+        #         all_alignments.append(alignments)
 
-            new_input_hidden_states = torch.cat([torch.stack(input_hidden_states, dim=1), utterance_attention], dim=0) # (input_value_size+schema_value_size) x len(input)
-            input_hidden_states = list(torch.split(new_input_hidden_states, split_size_or_sections=1, dim=1))
-            input_hidden_states = [input_hidden_state.squeeze() for input_hidden_state in input_hidden_states]
+        #     # Compute the loss
+        #     gold_sequence = gold_query
 
-            # bi-lstm over schema_states and input_hidden_states (embedder is an identify function)
-            if self.params.use_schema_encoder_2:
-                final_schema_state, schema_states = self.schema_encoder_2(schema_states, lambda x: x, dropout_amount=self.dropout)
-                final_utterance_state, input_hidden_states = self.utterance_encoder_2(input_hidden_states, lambda x: x, dropout_amount=self.dropout)
-
-        if feed_gold_tokens:
-            decoder_results = self.decoder(
-                utterance_final_state,
-                input_hidden_states,
-                schema_states,
-                max_generation_length,
-                gold_sequence=gold_query,
-                input_sequence=input_sequence,
-                previous_queries=previous_queries,
-                previous_query_states=previous_query_states,
-                input_schema=input_schema,
-                snippets=snippets,
-                dropout_amount=self.dropout)
-
-            all_scores = []
-            all_alignments = []
-            for prediction in decoder_results.predictions:
-                scores = F.softmax(prediction.scores, dim=0)
-                alignments = prediction.aligned_tokens
-                if self.params.use_previous_query and self.params.use_copy_switch and len(previous_queries) > 0:
-                    query_scores = F.softmax(prediction.query_scores, dim=0)
-                    copy_switch = prediction.copy_switch
-                    scores = torch.cat([scores * (1 - copy_switch), query_scores * copy_switch], dim=0)
-                    alignments = alignments + prediction.query_tokens
-
-                all_scores.append(scores)
-                all_alignments.append(alignments)
-
-            # Compute the loss
-            gold_sequence = gold_query
-
-            loss = torch_utils.compute_loss(gold_sequence, all_scores, all_alignments, get_token_indices)
-            if not training:
-                predicted_sequence = torch_utils.get_seq_from_scores(all_scores, all_alignments)
-                token_accuracy = torch_utils.per_token_accuracy(gold_sequence, predicted_sequence)
-            fed_sequence = gold_sequence
-        else:
-            decoder_results = self.decoder(
-                utterance_final_state,
-                input_hidden_states,
-                schema_states,
-                max_generation_length,
-                input_sequence=input_sequence,
-                previous_queries=previous_queries,
-                previous_query_states=previous_query_states,
-                input_schema=input_schema,
-                snippets=snippets,
-                dropout_amount=self.dropout)
-            predicted_sequence = decoder_results.sequence
-            fed_sequence = predicted_sequence
+        #     loss = torch_utils.compute_loss(gold_sequence, all_scores, all_alignments, get_token_indices)
+        #     if not training:
+        #         predicted_sequence = torch_utils.get_seq_from_scores(all_scores, all_alignments)
+        #         token_accuracy = torch_utils.per_token_accuracy(gold_sequence, predicted_sequence)
+        #     fed_sequence = gold_sequence
+        # else:
+        decoder_results = self.decoder(
+            text_final_state,
+            input_hidden_states,
+            schema_states,
+            max_gen_length,
+            input_sequence=input_sequence,
+            previous_queries=previous_queries,
+            previous_query_states=previous_query_states,
+            input_schema=input_schema,
+            snippets=snippets,
+            dropout_amount=self.dropout)
+        predicted_sequence = decoder_results.sequence
+        fed_sequence = predicted_sequence
 
         decoder_states = [pred.decoder_state for pred in decoder_results.predictions]
 
@@ -178,116 +155,66 @@ class DualSQL(Seq2Seq):
 
         return (
             predicted_sequence,
-            loss,
             token_accuracy,
             decoder_states,
             decoder_results)
 
-    def encode_schema_bow_simple(self, input_schema):
-        schema_states = []
-        for column_name in input_schema.column_names_embedder_input:
-            schema_states.append(input_schema.column_name_embedder_bow(column_name, surface_form=False, column_name_token_embedder=self.column_name_token_embedder))
-        input_schema.set_column_name_embeddings(schema_states)
-        return schema_states
+    def loss_turn(self):
+        return loss, decoder_states
 
-    def encode_schema_self_attention(self, schema_states):
-        schema_self_attention = self.schema2schema_attention_module(torch.stack(schema_states,dim=0), schema_states).vector
-        if schema_self_attention.dim() == 1:
-            schema_self_attention = schema_self_attention.unsqueeze(1)
-        residual_schema_states = list(torch.split(schema_self_attention, split_size_or_sections=1, dim=1))
-        residual_schema_states = [schema_state.squeeze() for schema_state in residual_schema_states]
+    def _initialize_discourse_states(self):
+        discourse_state = self.initial_discourse_state
 
-        new_schema_states = [schema_state+residual_schema_state for schema_state, residual_schema_state in zip(schema_states, residual_schema_states)]
-
-        return new_schema_states
-
-    def encode_schema(self, input_schema, dropout=False):
-      schema_states = []
-      for column_name_embedder_input in input_schema.column_names_embedder_input:
-        tokens = column_name_embedder_input.split()
-
-        if dropout:
-          final_schema_state_one, schema_states_one = self.schema_encoder(tokens, self.column_name_token_embedder, dropout_amount=self.dropout)
-        else:
-          final_schema_state_one, schema_states_one = self.schema_encoder(tokens, self.column_name_token_embedder)
-
-        # final_schema_state_one: 1 means hidden_states instead of cell_memories, -1 means last layer
-        schema_states.append(final_schema_state_one[1][-1])
-
-      input_schema.set_column_name_embeddings(schema_states)
-
-      # self-attention over schema_states
-      if self.params.use_schema_self_attention:
-        schema_states = self.encode_schema_self_attention(schema_states)
-
-      return schema_states
-
-    def get_bert_encoding(self, input_sequence, input_schema, discourse_state, dropout):
-        utterance_states, schema_token_states = utils_bert.get_bert_encoding(self.bert_config, self.model_bert, self.tokenizer, input_sequence, input_schema, bert_input_version=self.params.bert_input_version, num_out_layers_n=1, num_out_layers_h=1)
-
-        if self.params.discourse_level_lstm:
-            utterance_token_embedder = lambda x: torch.cat([x, discourse_state], dim=0)
-        else:
-            utterance_token_embedder = lambda x: x
-
-        if dropout:
-            final_utterance_state, utterance_states = self.utterance_encoder(
-                utterance_states,
-                utterance_token_embedder,
-                dropout_amount=self.dropout)
-        else:
-            final_utterance_state, utterance_states = self.utterance_encoder(
-                utterance_states,
-                utterance_token_embedder)
-
-        schema_states = []
-        for schema_token_states1 in schema_token_states:
-            if dropout:
-                final_schema_state_one, schema_states_one = self.schema_encoder(schema_token_states1, lambda x: x, dropout_amount=self.dropout)
+        discourse_lstm_states = []
+        for lstm in self.discourse_lstms:
+            hidden_size = lstm.weight_hh.size()[1]
+            if lstm.weight_hh.is_cuda:
+                h_0 = torch.cuda.FloatTensor(1,hidden_size).fill_(0)
+                c_0 = torch.cuda.FloatTensor(1,hidden_size).fill_(0)
             else:
-                final_schema_state_one, schema_states_one = self.schema_encoder(schema_token_states1, lambda x: x)
+                h_0 = torch.zeros(1,hidden_size)
+                c_0 = torch.zeros(1,hidden_size)
+            discourse_lstm_states.append((h_0, c_0))
 
-            # final_schema_state_one: 1 means hidden_states instead of cell_memories, -1 means last layer
-            schema_states.append(final_schema_state_one[1][-1])
+        return discourse_state, discourse_lstm_states
 
-        input_schema.set_column_name_embeddings(schema_states)
+    def _add_positional_embeddings(self, hidden_states, utterances, group=False):
+        grouped_states = []
 
-        # self-attention over schema_states
-        if self.params.use_schema_self_attention:
-            schema_states = self.encode_schema_self_attention(schema_states)
+        start_index = 0
+        for utterance in utterances:
+            grouped_states.append(hidden_states[start_index:start_index + len(utterance)])
+            start_index += len(utterance)
+        assert len(hidden_states) == sum([len(seq) for seq in grouped_states]) == sum([len(utterance) for utterance in utterances])
 
-        return final_utterance_state, utterance_states, schema_states
+        new_states = []
+        flat_sequence = []
 
-    def get_query_token_embedding(self, output_token, input_schema):
-        if input_schema:
-            if not (self.output_embedder.in_vocabulary(output_token) or input_schema.in_vocabulary(output_token, surface_form=True)):
-                output_token = 'value'
-            if self.output_embedder.in_vocabulary(output_token):
-                output_token_embedding = self.output_embedder(output_token)
+        num_utterances_to_keep = min(self.params.maximum_utterances, len(utterances))
+        for i, (states, utterance) in enumerate(zip(
+                grouped_states[-num_utterances_to_keep:], utterances[-num_utterances_to_keep:])):
+            positional_sequence = []
+            index = num_utterances_to_keep - i - 1
+
+            for state in states:
+                positional_sequence.append(torch.cat([state, self.positional_embedder(index)], dim=0))
+
+            assert len(positional_sequence) == len(utterance), \
+                "Expected utterance and state sequence length to be the same, " \
+                + "but they were " + str(len(utterance)) \
+                + " and " + str(len(positional_sequence))
+
+            if group:
+                new_states.append(positional_sequence)
             else:
-                output_token_embedding = input_schema.column_name_embedder(output_token, surface_form=True)
-        else:
-            output_token_embedding = self.output_embedder(output_token)
-        return output_token_embedding
+                new_states.extend(positional_sequence)
+            flat_sequence.extend(utterance)
 
-    def get_utterance_attention(self, final_utterance_states_c, final_utterance_states_h, final_utterance_state, num_utterances_to_keep):
-        # self-attention between utterance_states            
-        final_utterance_states_c.append(final_utterance_state[0][0])
-        final_utterance_states_h.append(final_utterance_state[1][0])
-        final_utterance_states_c = final_utterance_states_c[-num_utterances_to_keep:]
-        final_utterance_states_h = final_utterance_states_h[-num_utterances_to_keep:]
-
-        attention_result = self.utterance_attention_module(final_utterance_states_c[-1], final_utterance_states_c)
-        final_utterance_state_attention_c = final_utterance_states_c[-1] + attention_result.vector.squeeze()
-
-        attention_result = self.utterance_attention_module(final_utterance_states_h[-1], final_utterance_states_h)
-        final_utterance_state_attention_h = final_utterance_states_h[-1] + attention_result.vector.squeeze()
-
-        final_utterance_state = ([final_utterance_state_attention_c],[final_utterance_state_attention_h])
-
-        return final_utterance_states_c, final_utterance_states_h, final_utterance_state
+        return new_states, flat_sequence
 
     def get_previous_queries(self, previous_queries, previous_query_states, previous_query, input_schema):
+        """
+        """
         previous_queries.append(previous_query)
         num_queries_to_keep = min(self.params.maximum_queries, len(previous_queries))
         previous_queries = previous_queries[-num_queries_to_keep:]
@@ -300,26 +227,26 @@ class DualSQL(Seq2Seq):
 
         return previous_queries, previous_query_states
 
-    def train_step(self, interaction, max_generation_length, snippet_alignment_probability=1.):
-        """ Trains the interaction-level model on a single interaction.
+    def loss(self, interaction, max_gen_length, snippet_align_prob=1.):
+        """Calculates the loss on a single interaction.
 
-        Inputs:
-            interaction (Interaction): The interaction to train on.
-            learning_rate (float): Learning rate to use.
-            snippet_keep_age (int): Age of oldest snippets to use.
-            snippet_alignment_probability (float): The probability that a snippet will
+        Args:
+            interaction (InteractionItem): An interaction to train on.
+            max_gen_length (int): Maximum generation length.
+            snippet_align_prob (float): The probability that a snippet will
                 be used in constructing the gold sequence.
-        """
-        # assert self.params.discourse_level_lstm
 
+        Returns:
+            loss (float)
+        """
         losses = []
         total_gold_tokens = 0
 
         input_hidden_states = []
         input_sequences = []
 
-        final_utterance_states_c = []
-        final_utterance_states_h = []
+        final_text_states_c = []
+        final_text_states_h = []
 
         previous_query_states = []
         previous_queries = []
@@ -327,101 +254,84 @@ class DualSQL(Seq2Seq):
         decoder_states = []
 
         discourse_state = None
-        if self.params.discourse_level_lstm:
-            discourse_state, discourse_lstm_states = self._initialize_discourse_states()
+        discourse_state, discourse_lstm_states = self._initialize_discourse_states()
         discourse_states = []
 
         # Schema and schema embeddings
         input_schema = interaction.get_schema()
         schema_states = []
 
-        if input_schema and not self.params.use_bert:
+        if input_schema:
             schema_states = self.encode_schema_bow_simple(input_schema)
 
-        for utterance_index, utterance in enumerate(interaction.gold_utterances()):
-            if interaction.identifier in LIMITED_INTERACTIONS and utterance_index > LIMITED_INTERACTIONS[interaction.identifier]:
-                break
-
-            input_sequence = utterance.input_sequence()
-
-            available_snippets = utterance.snippets()
-            previous_query = utterance.previous_query()
-
+        if self.utterance2query:
+            gold_texts = interaction.gold_utterances()
+        else:
+            gold_texts = interaction.gold_queries()
+            
+        for text in gold_texts:
+            input_sequence = text.input_sequence()
+            available_snippets = text.snippets()
+            previous_query = text.previous_query()
+            
             # Get the gold query: reconstruct if the alignment probability is less than one
-            if snippet_alignment_probability < 1.:
+            if snippet_align_prob < 1.:
                 gold_query = sql_util.add_snippets_to_query(
                     available_snippets,
-                    utterance.contained_entities(),
-                    utterance.anonymized_gold_query(),
-                    prob_align=snippet_alignment_probability) + [vocab.EOS_TOK]
+                    text.contained_entities(),
+                    text.anonymized_gold_query(),
+                    prob_align=snippet_align_prob) + [vocab.EOS_TOK]
             else:
-                gold_query = utterance.gold_query()
+                gold_query = text.gold_query()
 
-            # Encode the utterance, and update the discourse-level states
+            # Encode the text, and update the discourse-level states
             if not self.params.use_bert:
                 if self.params.discourse_level_lstm:
-                    utterance_token_embedder = lambda token: torch.cat([self.input_embedder(token), discourse_state], dim=0)
+                    text_token_embedder = lambda token: torch.cat([self.input_embedder(token), discourse_state], dim=0)
                 else:
-                    utterance_token_embedder = self.input_embedder
-                final_utterance_state, utterance_states = self.utterance_encoder(
+                    text_token_embedder = self.input_embedder
+                final_text_state, text_states = self.text_encoder(
                     input_sequence,
-                    utterance_token_embedder,
+                    text_token_embedder,
                     dropout_amount=self.dropout)
             else:
-                final_utterance_state, utterance_states, schema_states = self.get_bert_encoding(input_sequence, input_schema, discourse_state, dropout=True)
+                final_text_state, text_states, schema_states = self.get_bert_encoding(input_sequence, input_schema, discourse_state, dropout=True)
 
-            input_hidden_states.extend(utterance_states)
+            input_hidden_states.extend(text_states)
             input_sequences.append(input_sequence)
 
-            num_utterances_to_keep = min(self.params.maximum_utterances, len(input_sequences))
+            num_texts_to_keep = min(self.params.maximum_texts, len(input_sequences))
 
-            # final_utterance_state[1][0] is the first layer's hidden states at the last time step (concat forward lstm and backward lstm)
-            if self.params.discourse_level_lstm:
-                _, discourse_state, discourse_lstm_states = torch_utils.forward_one_multilayer(self.discourse_lstms, final_utterance_state[1][0], discourse_lstm_states, self.dropout)
+            # final_text_state[1][0] is the first layer's hidden states at the last time step (concat forward lstm and backward lstm)
+            _, discourse_state, discourse_lstm_states = torch_utils.forward_one_multilayer(self.discourse_lstms, final_text_state[1][0], discourse_lstm_states, self.dropout)
 
-            if self.params.use_utterance_attention:
-                final_utterance_states_c, final_utterance_states_h, final_utterance_state = self.get_utterance_attention(final_utterance_states_c, final_utterance_states_h, final_utterance_state, num_utterances_to_keep)
+            if self.params.use_text_attention:
+                final_text_states_c, final_text_states_h, final_text_state = self.get_text_attention(final_text_states_c, final_text_states_h, final_text_state, num_texts_to_keep)
 
-            if self.params.state_positional_embeddings:
-                utterance_states, flat_sequence = self._add_positional_embeddings(input_hidden_states, input_sequences)
-            else:
-                flat_sequence = []
-                for utt in input_sequences[-num_utterances_to_keep:]:
-                    flat_sequence.extend(utt)
+            # state_positional_embeddings
+            text_states, flat_sequence = self._add_positional_embeddings(input_hidden_states, input_sequences)
 
-            snippets = None
-            if self.params.use_snippets:
-                if self.params.previous_decoder_snippet_encoding:
-                    snippets = encode_snippets_with_states(available_snippets, decoder_states)
-                else:
-                    snippets = self._encode_snippets(previous_query, available_snippets, input_schema)
-
-            if self.params.use_previous_query and len(previous_query) > 0:
+            if len(previous_query) > 0:
                 previous_queries, previous_query_states = self.get_previous_queries(previous_queries, previous_query_states, previous_query, input_schema)
 
-            if len(gold_query) <= max_generation_length and len(previous_query) <= max_generation_length:
-                prediction = self.predict_turn(
-                    final_utterance_state,
-                    utterance_states,
+            if len(gold_query) <= max_gen_length and len(previous_query) <= max_gen_length:
+                loss, decoder_states = self.loss_turn(
+                    final_text_state,
+                    text_states,
                     schema_states,
-                    max_generation_length,
+                    max_gen_length,
                     gold_query=gold_query,
-                    snippets=snippets,
+                    snippets=None,
                     input_sequence=flat_sequence,
                     previous_queries=previous_queries,
                     previous_query_states=previous_query_states,
                     input_schema=input_schema,
                     feed_gold_tokens=True,
                     training=True)
-                loss = prediction[1]
-                decoder_states = prediction[3]
                 total_gold_tokens += len(gold_query)
                 losses.append(loss)
             else:
-                # Break if previous decoder snippet encoding -- because the previous
-                # sequence was too long to run the decoder.
-                if self.params.previous_decoder_snippet_encoding:
-                    break
+                # sequence was too long to run the decoder
                 continue
 
             torch.cuda.empty_cache()
@@ -446,8 +356,8 @@ class DualSQL(Seq2Seq):
 
         return loss_scalar
 
-    def predict_with_predicted_queries(self, interaction, max_generation_length, syntax_restrict=True):
-        """ Predicts an interaction, using the predicted queries to get snippets."""
+    def predict_with_predicted_queries(self, interaction, max_gen_length, syntax_restrict=True):
+        """Predicts an interaction, using the predicted queries to get snippets."""
         # assert self.params.discourse_level_lstm
 
         syntax_restrict=False
@@ -457,8 +367,8 @@ class DualSQL(Seq2Seq):
         input_hidden_states = []
         input_sequences = []
 
-        final_utterance_states_c = []
-        final_utterance_states_h = []
+        final_text_states_c = []
+        final_text_states_h = []
 
         previous_query_states = []
         previous_queries = []
@@ -477,40 +387,40 @@ class DualSQL(Seq2Seq):
 
         interaction.start_interaction()
         while not interaction.done():
-            utterance = interaction.next_utterance()
+            text = interaction.next_text()
 
-            available_snippets = utterance.snippets()
-            previous_query = utterance.previous_query()
+            available_snippets = text.snippets()
+            previous_query = text.previous_query()
 
-            input_sequence = utterance.input_sequence()
+            input_sequence = text.input_sequence()
 
             if not self.params.use_bert:
                 if self.params.discourse_level_lstm:
-                    utterance_token_embedder = lambda token: torch.cat([self.input_embedder(token), discourse_state], dim=0)
+                    text_token_embedder = lambda token: torch.cat([self.input_embedder(token), discourse_state], dim=0)
                 else:
-                    utterance_token_embedder = self.input_embedder
-                final_utterance_state, utterance_states = self.utterance_encoder(
+                    text_token_embedder = self.input_embedder
+                final_text_state, text_states = self.text_encoder(
                     input_sequence,
-                    utterance_token_embedder)
+                    text_token_embedder)
             else:
-                final_utterance_state, utterance_states, schema_states = self.get_bert_encoding(input_sequence, input_schema, discourse_state, dropout=False)
+                final_text_state, text_states, schema_states = self.get_bert_encoding(input_sequence, input_schema, discourse_state, dropout=False)
 
-            input_hidden_states.extend(utterance_states)
+            input_hidden_states.extend(text_states)
             input_sequences.append(input_sequence)
 
-            num_utterances_to_keep = min(self.params.maximum_utterances, len(input_sequences))
+            num_texts_to_keep = min(self.params.maximum_texts, len(input_sequences))
 
             if self.params.discourse_level_lstm:
-                _, discourse_state, discourse_lstm_states = torch_utils.forward_one_multilayer(self.discourse_lstms, final_utterance_state[1][0], discourse_lstm_states)
+                _, discourse_state, discourse_lstm_states = torch_utils.forward_one_multilayer(self.discourse_lstms, final_text_state[1][0], discourse_lstm_states)
 
-            if self.params.use_utterance_attention:
-               final_utterance_states_c, final_utterance_states_h, final_utterance_state = self.get_utterance_attention(final_utterance_states_c, final_utterance_states_h, final_utterance_state, num_utterances_to_keep)
+            if self.params.use_text_attention:
+               final_text_states_c, final_text_states_h, final_text_state = self.get_text_attention(final_text_states_c, final_text_states_h, final_text_state, num_texts_to_keep)
 
             if self.params.state_positional_embeddings:
-                utterance_states, flat_sequence = self._add_positional_embeddings(input_hidden_states, input_sequences)
+                text_states, flat_sequence = self._add_positional_embeddings(input_hidden_states, input_sequences)
             else:
                 flat_sequence = []
-                for utt in input_sequences[-num_utterances_to_keep:]:
+                for utt in input_sequences[-num_texts_to_keep:]:
                     flat_sequence.extend(utt)
 
             snippets = None
@@ -520,10 +430,10 @@ class DualSQL(Seq2Seq):
             if self.params.use_previous_query and len(previous_query) > 0:
                 previous_queries, previous_query_states = self.get_previous_queries(previous_queries, previous_query_states, previous_query, input_schema)
 
-            results = self.predict_turn(final_utterance_state,
-                                        utterance_states,
+            results = self.predict_turn(final_text_state,
+                                        text_states,
                                         schema_states,
-                                        max_generation_length,
+                                        max_gen_length,
                                         input_sequence=flat_sequence,
                                         previous_queries=previous_queries,
                                         previous_query_states=previous_query_states,
@@ -534,27 +444,23 @@ class DualSQL(Seq2Seq):
             predictions.append(results)
 
             # Update things necessary for using predicted queries
-            anonymized_sequence = utterance.remove_snippets(predicted_sequence)
+            anonymized_sequence = text.remove_snippets(predicted_sequence)
             if EOS_TOK in anonymized_sequence:
                 anonymized_sequence = anonymized_sequence[:-1] # Remove _EOS
             else:
                 anonymized_sequence = ['select', '*', 'from', 't1']
 
             if not syntax_restrict:
-                utterance.set_predicted_query(interaction.remove_snippets(predicted_sequence))
+                text.set_predicted_query(interaction.remove_snippets(predicted_sequence))
                 if input_schema:
-                    # on SParC
-                    interaction.add_utterance(utterance, anonymized_sequence, previous_snippets=utterance.snippets(), simple=True)
-                else:
-                    # on ATIS
-                    interaction.add_utterance(utterance, anonymized_sequence, previous_snippets=utterance.snippets(), simple=False)
+                    interaction.add_text(text, anonymized_sequence, previous_snippets=text.snippets(), simple=True)
             else:
-                utterance.set_predicted_query(utterance.previous_query())
-                interaction.add_utterance(utterance, utterance.previous_query(), previous_snippets=utterance.snippets())
+                text.set_predicted_query(text.previous_query())
+                interaction.add_text(text, text.previous_query(), previous_snippets=text.snippets())
 
         return predictions
 
-    def predict_with_gold_queries(self, interaction, max_generation_length, feed_gold_query=False):
+    def predict_with_gold_queries(self, interaction, max_gen_length, feed_gold_query=False):
         """ Predicts SQL queries for an interaction.
 
         Inputs:
@@ -569,8 +475,8 @@ class DualSQL(Seq2Seq):
         input_hidden_states = []
         input_sequences = []
 
-        final_utterance_states_c = []
-        final_utterance_states_h = []
+        final_text_states_c = []
+        final_text_states_h = []
 
         previous_query_states = []
         previous_queries = []
@@ -588,42 +494,41 @@ class DualSQL(Seq2Seq):
         if input_schema and not self.params.use_bert:
             schema_states = self.encode_schema_bow_simple(input_schema)
 
+        for text in interaction.gold_texts():
+            input_sequence = text.input_sequence()
 
-        for utterance in interaction.gold_utterances():
-            input_sequence = utterance.input_sequence()
+            available_snippets = text.snippets()
+            previous_query = text.previous_query()
 
-            available_snippets = utterance.snippets()
-            previous_query = utterance.previous_query()
-
-            # Encode the utterance, and update the discourse-level states
+            # Encode the text, and update the discourse-level states
             if not self.params.use_bert:
                 if self.params.discourse_level_lstm:
-                    utterance_token_embedder = lambda token: torch.cat([self.input_embedder(token), discourse_state], dim=0)
+                    text_token_embedder = lambda token: torch.cat([self.input_embedder(token), discourse_state], dim=0)
                 else:
-                    utterance_token_embedder = self.input_embedder
-                final_utterance_state, utterance_states = self.utterance_encoder(
+                    text_token_embedder = self.input_embedder
+                final_text_state, text_states = self.text_encoder(
                     input_sequence,
-                    utterance_token_embedder,
+                    text_token_embedder,
                     dropout_amount=self.dropout)
             else:
-                final_utterance_state, utterance_states, schema_states = self.get_bert_encoding(input_sequence, input_schema, discourse_state, dropout=True)
+                final_text_state, text_states, schema_states = self.get_bert_encoding(input_sequence, input_schema, discourse_state, dropout=True)
 
-            input_hidden_states.extend(utterance_states)
+            input_hidden_states.extend(text_states)
             input_sequences.append(input_sequence)
 
-            num_utterances_to_keep = min(self.params.maximum_utterances, len(input_sequences))
+            num_texts_to_keep = min(self.params.maximum_texts, len(input_sequences))
 
             if self.params.discourse_level_lstm:
-                _, discourse_state, discourse_lstm_states = torch_utils.forward_one_multilayer(self.discourse_lstms, final_utterance_state[1][0], discourse_lstm_states, self.dropout)
+                _, discourse_state, discourse_lstm_states = torch_utils.forward_one_multilayer(self.discourse_lstms, final_text_state[1][0], discourse_lstm_states, self.dropout)
 
-            if self.params.use_utterance_attention:
-                final_utterance_states_c, final_utterance_states_h, final_utterance_state = self.get_utterance_attention(final_utterance_states_c, final_utterance_states_h, final_utterance_state, num_utterances_to_keep)
+            if self.params.use_text_attention:
+                final_text_states_c, final_text_states_h, final_text_state = self.get_text_attention(final_text_states_c, final_text_states_h, final_text_state, num_texts_to_keep)
 
             if self.params.state_positional_embeddings:
-                utterance_states, flat_sequence = self._add_positional_embeddings(input_hidden_states, input_sequences)
+                text_states, flat_sequence = self._add_positional_embeddings(input_hidden_states, input_sequences)
             else:
                 flat_sequence = []
-                for utt in input_sequences[-num_utterances_to_keep:]:
+                for utt in input_sequences[-num_texts_to_keep:]:
                     flat_sequence.extend(utt)
 
             snippets = None
@@ -636,11 +541,11 @@ class DualSQL(Seq2Seq):
             if self.params.use_previous_query and len(previous_query) > 0:
                 previous_queries, previous_query_states = self.get_previous_queries(previous_queries, previous_query_states, previous_query, input_schema)
 
-            prediction = self.predict_turn(final_utterance_state,
-                                           utterance_states,
+            prediction = self.predict_turn(final_text_state,
+                                           text_states,
                                            schema_states,
-                                           max_generation_length,
-                                           gold_query=utterance.gold_query(),
+                                           max_gen_length,
+                                           gold_query=text.gold_query(),
                                            snippets=snippets,
                                            input_sequence=flat_sequence,
                                            previous_queries=previous_queries,
@@ -652,3 +557,10 @@ class DualSQL(Seq2Seq):
             predictions.append(prediction)
 
         return predictions
+
+    def save(self, filename):
+        torch.save(self.state_dict(), filename)
+
+    def load(self, filename):
+        self.load_state_dict(torch.load(filename))
+        print("Loaded model from file " + filename)

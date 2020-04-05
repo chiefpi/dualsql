@@ -58,7 +58,7 @@ class LanguageModel(nn.Module):
         Sequence must contain BOS and EOS symbol. TODO: wtf
         :param input: sentence
         :param hidden: hidden state
-        :return: log-probability
+        :return: length-normalized log-probability
         """
         # output = input[1:] # EOS?
         score = self.forward(input[:-1], hidden)

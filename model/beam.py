@@ -1,10 +1,9 @@
 import torch
 
-from utils.penalty import PenaltyBuilder
-from utils.constants import *
+from model_utils.penalty import PenaltyBuilder
 
 
-class Beam(object):
+class Beam:
     """
     Class for managing the internals of the beam search process.
     Takes care of beams, back pointers, and scores. (Revised from OpenNMT.)

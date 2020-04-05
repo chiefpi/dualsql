@@ -1,11 +1,11 @@
 """ Contains the class for an interaction in ATIS. """
-
-from . import anonymization as anon
-from . import sql_util
-from .snippets import expand_snippets
-from .utterance import Utterance, OUTPUT_KEY, ANON_INPUT_KEY
-
 import torch
+
+import anonymization as anon
+import sql_util
+from snippet import expand_snippets
+from utterance import Utterance, OUTPUT_KEY, ANON_INPUT_KEY
+
 
 class Schema:
     def __init__(self, table_schema, simple=False):
@@ -153,7 +153,7 @@ class Schema:
         return self.column_name_embeddings[column_name_id]
 
 class Interaction:
-    """ ATIS interaction class.
+    """ Interaction class.
 
     Attributes:
         utterances (list of Utterance): The utterances in the interaction.

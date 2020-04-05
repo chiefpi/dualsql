@@ -55,7 +55,7 @@ def snippet_index(token):
 
 
 class Snippet():
-    """ Contains a snippet. """
+    """Contains a snippet."""
     def __init__(
             self,
             sequence,

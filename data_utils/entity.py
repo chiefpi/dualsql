@@ -1,4 +1,4 @@
-""" Classes for keeping track of the entities in a natural language string. """
+"""Classes for keeping track of the entities in a natural language string."""
 import json
 
 
