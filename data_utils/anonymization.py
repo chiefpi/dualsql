@@ -141,11 +141,8 @@ class Anonymizer:
         else:
             return -1
 
-    def anonymize(self,
-                  sequence,
-                  tok_to_entity_dict,
-                  key,
-                  add_new_anon_toks=False):
+    def anonymize(self, sequence, tok_to_entity_dict,
+            key, add_new_anon_toks=False):
         """Anonymizes a sequence.
 
         Inputs:
@@ -260,3 +257,7 @@ class Anonymizer:
                     anonymized_sequence[index] = new_token
 
         return anonymized_sequence
+
+
+if __name__ == "__main__":
+    Anonymizer()

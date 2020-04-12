@@ -1,5 +1,0 @@
-params.schema_encoder_input_size
-params.schema_encoder_state_size
-params.schema_attention_key_size
-params.use_text_schema_attention
-params.encoder_state_size

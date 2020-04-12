@@ -6,6 +6,8 @@
 *.db
 *.bak
 *.dump
+misc
 glove/*
 data/*
-misc
+!data/anonymization.txt
+!data/entities.txt

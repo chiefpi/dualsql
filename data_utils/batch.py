@@ -1,24 +1,24 @@
 # TODO: review this entire file and make it much simpler. 
 
 import copy
-import snippets as snip
-import sql_util
-import vocabulary as vocab
+from data_utils import snippet as snip
+from data_utils import sql_util
+from data_utils import vocabulary as vocab
 
 
-class UtteranceItem():
+class TurnItem():
     def __init__(self, interaction, index):
         self.interaction = interaction
-        self.utterance_index = index
+        self.turn_index = index
 
     def __str__(self):
-        return str(self.interaction.utterances[self.utterance_index])
+        return str(self.interaction.turns[self.turn_index])
 
     def histories(self, maximum):
         if maximum > 0:
             history_seqs = []
-            for utterance in self.interaction.utterances[:self.utterance_index]:
-                history_seqs.append(utterance.input_seq_to_use)
+            for turn in self.interaction.turns[:self.turn_index]:
+                history_seqs.append(turn.input_seq_to_use)
 
             if len(history_seqs) > maximum:
                 history_seqs = history_seqs[-maximum:]
@@ -27,51 +27,51 @@ class UtteranceItem():
         return []
 
     def input_sequence(self):
-        return self.interaction.utterances[self.utterance_index].input_seq_to_use
+        return self.interaction.turns[self.turn_index].input_seq_to_use
 
     def previous_query(self):
-        if self.utterance_index == 0:
+        if self.turn_index == 0:
             return []
-        return self.interaction.utterances[self.utterance_index -
+        return self.interaction.turns[self.turn_index -
                                            1].anonymized_gold_query
 
     def anonymized_gold_query(self):
-        return self.interaction.utterances[self.utterance_index].anonymized_gold_query
+        return self.interaction.turns[self.turn_index].anonymized_gold_query
 
-    def snippets(self):
-        return self.interaction.utterances[self.utterance_index].available_snippets
+    def snippet(self):
+        return self.interaction.turns[self.turn_index].available_snippets
 
     def original_gold_query(self):
-        return self.interaction.utterances[self.utterance_index].original_gold_query
+        return self.interaction.turns[self.turn_index].original_gold_query
 
     def contained_entities(self):
-        return self.interaction.utterances[self.utterance_index].contained_entities
+        return self.interaction.turns[self.turn_index].contained_entities
 
     def original_gold_queries(self):
         return [
-            q[0] for q in self.interaction.utterances[self.utterance_index].all_gold_queries]
+            q[0] for q in self.interaction.turns[self.turn_index].all_gold_queries]
 
     def gold_tables(self):
         return [
-            q[1] for q in self.interaction.utterances[self.utterance_index].all_gold_queries]
+            q[1] for q in self.interaction.turns[self.turn_index].all_gold_queries]
 
     def gold_query(self):
-        return self.interaction.utterances[self.utterance_index].gold_query_to_use + [
+        return self.interaction.turns[self.turn_index].gold_query_to_use + [
             vocab.EOS_TOK]
 
     def gold_edit_sequence(self):
-        return self.interaction.utterances[self.utterance_index].gold_edit_sequence
+        return self.interaction.turns[self.turn_index].gold_edit_sequence
 
     def gold_table(self):
-        return self.interaction.utterances[self.utterance_index].gold_sql_results
+        return self.interaction.turns[self.turn_index].gold_sql_results
 
     def all_snippets(self):
-        return self.interaction.snippets
+        return self.interaction.snippet
 
     def within_limits(self,
                       max_input_length=float('inf'),
                       max_output_length=float('inf')):
-        return self.interaction.utterances[self.utterance_index].length_valid(
+        return self.interaction.turns[self.turn_index].length_valid(
             max_input_length, max_output_length)
 
     def expand_snippets(self, sequence):
@@ -79,7 +79,7 @@ class UtteranceItem():
         if sequence[-1] == vocab.EOS_TOK:
             sequence = sequence[:-1]
 
-        # First remove the snippets
+        # First remove the snippet
         no_snippets_sequence = self.interaction.expand_snippets(sequence)
         no_snippets_sequence = sql_util.fix_parentheses(no_snippets_sequence)
         return no_snippets_sequence
@@ -89,7 +89,7 @@ class UtteranceItem():
         if sequence[-1] == vocab.EOS_TOK:
             sequence = sequence[:-1]
 
-        # First remove the snippets
+        # First remove the snippet
         no_snippets_sequence = self.interaction.expand_snippets(sequence)
 
         # Deanonymize
@@ -98,7 +98,7 @@ class UtteranceItem():
         return deanon_sequence
 
 
-class UtteranceBatch():
+class TurnBatch():
     def __init__(self, items):
         self.items = items
 
@@ -116,7 +116,8 @@ class UtteranceBatch():
     def done(self):
         return self.index >= len(self.items)
 
-class PredUtteranceItem():
+
+class PredTurnItem():
     def __init__(self,
                  input_sequence,
                  interaction_item,
@@ -136,13 +137,13 @@ class PredUtteranceItem():
         if maximum == 0:
             return histories
         histories = []
-        for utterance in self.interaction_item.processed_utterances[:self.index]:
-            histories.append(utterance.input_sequence())
+        for turn in self.interaction_item.processed_turns[:self.index]:
+            histories.append(turn.input_sequence())
         if len(histories) > maximum:
             histories = histories[-maximum:]
         return histories
 
-    def snippets(self):
+    def snippet(self):
         return self.available_snippets
 
     def previous_query(self):
@@ -171,10 +172,10 @@ class InteractionItem():
                  maximum_length=float('inf')):
         if maximum_length != float('inf'):
             self.interaction = copy.deepcopy(interaction)
-            self.interaction.utterances = self.interaction.utterances[:maximum_length]
+            self.interaction.turns = self.interaction.turns[:maximum_length]
         else:
             self.interaction = interaction
-        self.processed_utterances = []
+        self.processed_turns = []
         self.snippet_bank = []
         self.identifier = self.interaction.identifier
 
@@ -189,12 +190,12 @@ class InteractionItem():
         return len(self.interaction)
 
     def __str__(self):
-        s = "Utterances, gold queries, and predictions:\n"
-        for i, utterance in enumerate(self.interaction.utterances):
-            s += " ".join(utterance.input_seq_to_use) + "\n"
-            pred_utterance = self.processed_utterances[i]
-            s += " ".join(pred_utterance.gold_query()) + "\n"
-            s += " ".join(pred_utterance.anonymized_query()) + "\n"
+        s = "Turns, gold queries, and predictions:\n"
+        for i, turn in enumerate(self.interaction.turns):
+            s += " ".join(turn.input_seq_to_use) + "\n"
+            pred_turn = self.processed_turns[i]
+            s += " ".join(pred_turn.gold_query()) + "\n"
+            s += " ".join(pred_turn.anonymized_query()) + "\n"
             s += "\n"
         s += "Snippets:\n"
         for snippet in self.snippet_bank:
@@ -204,75 +205,75 @@ class InteractionItem():
 
     def start_interaction(self):
         assert len(self.snippet_bank) == 0
-        assert len(self.processed_utterances) == 0
+        assert len(self.processed_turns) == 0
         assert self.index == 0
 
-    def next_utterance(self):
-        utterance = self.interaction.utterances[self.index]
+    def next_turn(self):
+        turn = self.interaction.turns[self.index]
         self.index += 1
 
         available_snippets = self.available_snippets(snippet_keep_age=1)
 
-        return PredUtteranceItem(utterance.input_seq_to_use,
+        return PredTurnItem(turn.input_seq_to_use,
                                  self,
-                                 self.processed_utterances[-1].anonymized_pred_query if len(self.processed_utterances) > 0 else [],
+                                 self.processed_turns[-1].anonymized_pred_query if len(self.processed_turns) > 0 else [],
                                  self.index - 1,
                                  available_snippets)
 
     def done(self):
-        return len(self.processed_utterances) == len(self.interaction)
+        return len(self.processed_turns) == len(self.interaction)
 
     def finish(self):
         self.snippet_bank = []
-        self.processed_utterances = []
+        self.processed_turns = []
         self.index = 0
 
-    def utterance_within_limits(self, utterance_item):
-        return utterance_item.within_limits(self.max_input_length,
+    def turn_within_limits(self, turn_item):
+        return turn_item.within_limits(self.max_input_length,
                                             self.max_output_length)
 
     def available_snippets(self, snippet_keep_age):
         return [
             snippet for snippet in self.snippet_bank if snippet.index <= snippet_keep_age]
 
-    def gold_utterances(self):
-        utterances = []
-        for i, utterance in enumerate(self.interaction.utterances):
-            utterances.append(UtteranceItem(self.interaction, i))
-        return utterances
+    def gold_turns(self):
+        turns = []
+        for i, turn in enumerate(self.interaction.turns):
+            turns.append(TurnItem(self.interaction, i))
+        return turns
 
     def get_schema(self):
         return self.interaction.schema
 
-    def add_utterance(
+    def add_turn(
             self,
-            utterance,
+            turn,
             predicted_sequence,
-            snippets=None,
+            snippet=None,
             previous_snippets=[],
             simple=False):
-        if not snippets:
+        if not snippet:
             self.add_snippets(
                 predicted_sequence,
                 previous_snippets=previous_snippets, simple=simple)
         else:
-            for snippet in snippets:
+            for snippet in snippet:
                 snippet.assign_id(len(self.snippet_bank))
                 self.snippet_bank.append(snippet)
 
             for snippet in self.snippet_bank:
                 snippet.increase_age()
-        self.processed_utterances.append(utterance)
+        self.processed_turns.append(turn)
 
     def add_snippets(self, sequence, previous_snippets=[], simple=False):
         if sequence:
             if simple:
-                snippets = sql_util.get_subtrees_simple(
+                snippet = sql_util.get_subtrees_simple(
                     sequence, oldsnippets=previous_snippets)
             else:
-                snippets = sql_util.get_subtrees(
+                snippet = sql_util.get_subtrees(
                     sequence, oldsnippets=previous_snippets)
-            for snippet in snippets:
+            for snippet in snippet:
                 snippet.assign_id(len(self.snippet_bank))
                 self.snippet_bank.append(snippet)
 
@@ -307,14 +308,14 @@ class InteractionItem():
         return deanon_sequence
 
     def gold_query(self, index):
-        return self.interaction.utterances[index].gold_query_to_use + [
+        return self.interaction.turns[index].gold_query_to_use + [
             vocab.EOS_TOK]
 
     def original_gold_query(self, index):
-        return self.interaction.utterances[index].original_gold_query
+        return self.interaction.turns[index].original_gold_query
 
     def gold_table(self, index):
-        return self.interaction.utterances[index].gold_sql_results
+        return self.interaction.turns[index].gold_sql_results
 
 
 class InteractionBatch():
@@ -328,18 +329,18 @@ class InteractionBatch():
         self.timestep = 0
         self.current_interactions = []
 
-    def get_next_utterance_batch(self, snippet_keep_age, use_gold=False):
+    def get_next_turn_batch(self, snippet_keep_age, use_gold=False):
         items = []
         self.current_interactions = []
         for interaction in self.items:
             if self.timestep < len(interaction):
-                utterance_item = interaction.original_utterances(
+                turn_item = interaction.original_turns(
                     snippet_keep_age, use_gold)[self.timestep]
                 self.current_interactions.append(interaction)
-                items.append(utterance_item)
+                items.append(turn_item)
 
         self.timestep += 1
-        return UtteranceBatch(items)
+        return TurnBatch(items)
 
     def done(self):
         finished = True

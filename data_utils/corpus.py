@@ -1,16 +1,15 @@
-"""Utility functions for loading and processing data.
-"""
+"""Utility functions for loading and processing data."""
+
 import os
 import random
 import json
 
-import anonymization as anon
-import batch
-import dataset_split as ds
-
-from interaction import load_function
-from entities import NLtoSQLDict
-from vocab import Vocabulary
+from data_utils import anonymization as anon
+from data_utils import batch as data_batch
+from data_utils import dataset_split as ds
+from data_utils.interaction import load_function
+from data_utils.entity import NLtoSQLDict
+from data_utils.data_vocab import DataVocab
 
 ENTITIES_FILENAME = './data/entities.txt'
 ANONYMIZATION_FILENAME = './data/anonymization.txt'
@@ -44,105 +43,58 @@ class Corpus():
             """ Collapses a list of list into a single list."""
             return [s for i in the_list for s in i]
 
-        if 'atis' not in params.data_directory:
-            self.train_data = ds.DatasetSplit(
-                os.path.join(params.data_directory, params.processed_train_filename),
-                params.raw_train_filename,
-                int_load_function)
-            self.valid_data = ds.DatasetSplit(
-                os.path.join(params.data_directory, params.processed_validation_filename),
-                params.raw_validation_filename,
-                int_load_function)
+        self.train_data = ds.DatasetSplit(
+            os.path.join(params.data_directory, params.processed_train_filename),
+            params.raw_train_filename,
+            int_load_function)
+        self.valid_data = ds.DatasetSplit(
+            os.path.join(params.data_directory, params.processed_validation_filename),
+            params.raw_validation_filename,
+            int_load_function)
 
-            train_input_seqs = collapse_list(self.train_data.get_ex_properties(lambda i: i.input_seqs()))
-            valid_input_seqs = collapse_list(self.valid_data.get_ex_properties(lambda i: i.input_seqs()))
+        train_input_seqs = collapse_list(self.train_data.get_ex_properties(lambda i: i.input_seqs()))
+        valid_input_seqs = collapse_list(self.valid_data.get_ex_properties(lambda i: i.input_seqs()))
 
-            all_input_seqs = train_input_seqs + valid_input_seqs
+        all_input_seqs = train_input_seqs + valid_input_seqs
 
-            self.input_vocabulary = Vocabulary(
-                all_input_seqs,
-                os.path.join(params.data_directory, params.input_vocabulary_filename),
-                params,
-                is_input='input',
-                anonymizer=self.anonymizer if params.anonymization_scoring else None)
+        self.input_vocabulary = DataVocab(
+            all_input_seqs,
+            os.path.join(params.data_directory, params.input_vocabulary_filename),
+            params,
+            is_input='input',
+            anonymizer=self.anonymizer if params.anonymization_scoring else None)
 
-            self.output_vocabulary_schema = Vocabulary(
-                column_names_embedder_input,
-                os.path.join(params.data_directory, 'schema_'+params.output_vocabulary_filename),
-                params,
-                is_input='schema',
-                anonymizer=self.anonymizer if params.anonymization_scoring else None)
+        self.output_vocabulary_schema = DataVocab(
+            column_names_embedder_input,
+            os.path.join(params.data_directory, 'schema_'+params.output_vocabulary_filename),
+            params,
+            is_input='schema',
+            anonymizer=self.anonymizer if params.anonymization_scoring else None)
 
-            train_output_seqs = collapse_list(self.train_data.get_ex_properties(lambda i: i.output_seqs()))
-            valid_output_seqs = collapse_list(self.valid_data.get_ex_properties(lambda i: i.output_seqs()))
-            all_output_seqs = train_output_seqs + valid_output_seqs
+        train_output_seqs = collapse_list(self.train_data.get_ex_properties(lambda i: i.output_seqs()))
+        valid_output_seqs = collapse_list(self.valid_data.get_ex_properties(lambda i: i.output_seqs()))
+        all_output_seqs = train_output_seqs + valid_output_seqs
 
-            sql_keywords = ['.', 't1', 't2', '=', 'select', 'as', 'join', 'on', ')', '(', 'where', 't3', 'by', ',', 'group', 'distinct', 't4', 'and', 'limit', 'desc', '>', 'avg', 'having', 'max', 'in', '<', 'sum', 't5', 'intersect', 'not', 'min', 'except', 'or', 'asc', 'like', '!', 'union', 'between', 't6', '-', 't7', '+', '/']
-            sql_keywords += ['count', 'from', 'value', 'order']
-            sql_keywords += ['group_by', 'order_by', 'limit_value', '!=']
+        sql_keywords = ['.', 't1', 't2', '=', 'select', 'as', 'join', 'on', ')', '(', 'where', 't3', 'by', ',', 'group', 'distinct', 't4', 'and', 'limit', 'desc', '>', 'avg', 'having', 'max', 'in', '<', 'sum', 't5', 'intersect', 'not', 'min', 'except', 'or', 'asc', 'like', '!', 'union', 'between', 't6', '-', 't7', '+', '/']
+        sql_keywords += ['count', 'from', 'value', 'order']
+        sql_keywords += ['group_by', 'order_by', 'limit_value', '!=']
 
-            # skip column_names_surface_form but keep sql_keywords
-            skip_tokens = list(set(column_names_surface_form) - set(sql_keywords))
+        # skip column_names_surface_form but keep sql_keywords
+        skip_tokens = list(set(column_names_surface_form) - set(sql_keywords))
 
-            if params.data_directory == 'processed_data_sparc_removefrom_test':
-              all_output_seqs = []
-              out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', 'group_by', 'order_by', 'limit_value', 'desc', '>', 'distinct', 'avg', 'and', 'having', '<', 'in', 'max', 'sum', 'asc', 'like', 'not', 'or', 'min', 'intersect', 'except', '!=', 'union', 'between', '-', '+']
-              for i in range(len(out_vocab_ordered)):
-                all_output_seqs.append(out_vocab_ordered[:i+1])
+        if params.data_directory == 'processed_data_sparc_removefrom_test':
+            all_output_seqs = []
+            out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', 'group_by', 'order_by', 'limit_value', 'desc', '>', 'distinct', 'avg', 'and', 'having', '<', 'in', 'max', 'sum', 'asc', 'like', 'not', 'or', 'min', 'intersect', 'except', '!=', 'union', 'between', '-', '+']
+            for i in range(len(out_vocab_ordered)):
+            all_output_seqs.append(out_vocab_ordered[:i+1])
 
-            self.output_vocabulary = Vocabulary(
-                all_output_seqs,
-                os.path.join(params.data_directory, params.output_vocabulary_filename),
-                params,
-                is_input='output',
-                anonymizer=self.anonymizer if params.anonymization_scoring else None,
-                skip=skip_tokens)
-        else:
-            self.train_data = ds.DatasetSplit(
-                os.path.join(params.data_directory, params.processed_train_filename),
-                params.raw_train_filename,
-                int_load_function)
-            if params.train:
-                self.valid_data = ds.DatasetSplit(
-                    os.path.join(params.data_directory, params.processed_validation_filename),
-                    params.raw_validation_filename,
-                    int_load_function)
-            if params.evaluate or params.attention:
-                self.dev_data = ds.DatasetSplit(
-                    os.path.join(params.data_directory, params.processed_dev_filename),
-                    params.raw_dev_filename,
-                    int_load_function)
-                if params.enable_testing:
-                    self.test_data = ds.DatasetSplit(
-                        os.path.join(params.data_directory, params.processed_test_filename),
-                        params.raw_test_filename,
-                        int_load_function)
-
-            train_input_seqs = []
-            train_input_seqs = collapse_list(
-                self.train_data.get_ex_properties(
-                    lambda i: i.input_seqs()))
-
-            self.input_vocabulary = Vocabulary(
-                train_input_seqs,
-                os.path.join(params.data_directory, params.input_vocabulary_filename),
-                params,
-                is_input='input',
-                min_occur=2,
-                anonymizer=self.anonymizer if params.anonymization_scoring else None)
-
-            train_output_seqs = collapse_list(
-                self.train_data.get_ex_properties(
-                    lambda i: i.output_seqs()))
-
-            self.output_vocabulary = Vocabulary(
-                train_output_seqs,
-                os.path.join(params.data_directory, params.output_vocabulary_filename),
-                params,
-                is_input='output',
-                anonymizer=self.anonymizer if params.anonymization_scoring else None)
-
-            self.output_vocabulary_schema = None
+        self.output_vocabulary = DataVocab(
+            all_output_seqs,
+            os.path.join(params.data_directory, params.output_vocabulary_filename),
+            params,
+            is_input='output',
+            anonymizer=self.anonymizer if params.anonymization_scoring else None,
+            skip=skip_tokens)
 
     def read_database_schema_simple(self, database_schema_filename):
         with open(database_schema_filename, "r") as f:
@@ -231,7 +183,7 @@ class Corpus():
         for interaction in dataset.examples:
             for i, utterance in enumerate(interaction.utterances):
                 if utterance.length_valid(max_input_length, max_output_length):
-                    items.append(atis_batch.UtteranceItem(interaction, i))
+                    items.append(data_batch.UtteranceItem(interaction, i))
         return items
 
     def get_all_interactions(self,
@@ -250,7 +202,7 @@ class Corpus():
             sorted_by_length (bool): Whether to sort the examples by interaction length.
         """
         ints = [
-            atis_batch.InteractionItem(
+            data_batch.InteractionItem(
                 interaction,
                 max_input_length,
                 max_output_length,
@@ -289,10 +241,10 @@ class Corpus():
         current_batch_items = []
         for item in items:
             if len(current_batch_items) >= batch_size:
-                batches.append(atis_batch.UtteranceBatch(current_batch_items))
+                batches.append(data_batch.UtteranceBatch(current_batch_items))
                 current_batch_items = []
             current_batch_items.append(item)
-        batches.append(atis_batch.UtteranceBatch(current_batch_items))
+        batches.append(data_batch.UtteranceBatch(current_batch_items))
 
         assert sum([len(batch) for batch in batches]) == len(items)
 
@@ -326,10 +278,10 @@ class Corpus():
         for item in items:
             if len(current_batch_items) >= batch_size:
                 batches.append(
-                    atis_batch.InteractionBatch(current_batch_items))
+                    data_batch.InteractionBatch(current_batch_items))
                 current_batch_items = []
             current_batch_items.append(item)
-        batches.append(atis_batch.InteractionBatch(current_batch_items))
+        batches.append(data_batch.InteractionBatch(current_batch_items))
 
         assert sum([len(batch) for batch in batches]) == len(items)
 

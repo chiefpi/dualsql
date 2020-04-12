@@ -4,7 +4,7 @@ EditSQL with dual learning mechanism.
 
 ## Data Preparation
 
-Download the following datasets (excluding database)
+Download the followings
 
 * glove/glove.840B.300d.txt
 * data/spider
@@ -15,8 +15,10 @@ Download `nltk.punkt`.
 
 ## Preprocess
 
+Remove unnecessary attributes from json.
+
 ```bash
-python preprocess.py --dataset=cosql --remove_from
+python preprocess.py --dataset=sparc --remove_from
 ```
 
 ## Train
@@ -31,8 +33,10 @@ Calculate the question match and the interaction match.
 
 ```bash
 # etype=match
-python3 postprocess_eval.py --dataset=cosql --split=dev --pred_file log/valid_use_predicted_queries_predictions.json --remove_from
+python3 postprocess_eval.py --dataset=sparc --split=dev --pred_file log/todo.json --remove_from
 ```
+
+TODO: pred_file name
 
 ## Experiment Results
 

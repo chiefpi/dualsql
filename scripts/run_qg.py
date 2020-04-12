@@ -1,6 +1,6 @@
 import time
-import math
 import os
+import sys
 import argparse
 
 import torch
@@ -12,41 +12,7 @@ from model.dualsql import DualSQL
 
 def interpret_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', type=str, default='data/sparc',
-                        help='location of the data data')
-    # Model
-    parser.add_argument('--emb_dim', type=int, default=200,
-                        help='size of word embeddings')
-    parser.add_argument('--hidden_dim', type=int, default=200,
-                        help='number of hidden units per layer')
-    parser.add_argument('--num_layers', type=int, default=2,
-                        help='number of layers')
-    # Training
-    parser.add_argument('--lr', type=float, default=20,
-                        help='initial learning rate')
-    parser.add_argument('--clip', type=float, default=0.25,
-                        help='gradient clipping')
-    parser.add_argument('--epochs', type=int, default=40, 
-                        help='upper epoch limit')
-    parser.add_argument('--batch_size', type=int, default=20, metavar='N',
-                        help='batch size')
-    # parser.add_argument('--bptt', type=int, default=35,
-    #                     help='sequence length')
-    parser.add_argument('--dropout', type=float, default=0.2,
-                        help='dropout applied to layers (0 = no dropout)')
-    # parser.add_argument('--tied', action='store_true',
-    #                     help='tie the word embedding and softmax weights')
-    parser.add_argument('--seed', type=int, default=0,
-                        help='random seed')
-    parser.add_argument('--cuda', action='store_true',
-                        help='use CUDA')
-    parser.add_argument('--evaluate_split', type=str, default='dev',
-                        help='')
-    # Log
-    parser.add_argument('--log_interval', type=int, default=200, metavar='N',
-                        help='report interval')
-    parser.add_argument('--save', type=str, default='saved_models/sparc/language_model/model.pt',
-                        help='path to save the final model')
+
 
     return parser.parse_args()
 
@@ -72,7 +38,7 @@ def main():
 
     # Build the model
     vocab_size = len(data.dictionary)
-    model = model.RNNModel(
+    model = DualSQL(
         vocab_size,
         params.emb_dim,
         params.hidden_dim,
@@ -119,18 +85,18 @@ def main():
     if params.evaluate and 'test' in params.evaluate_split:
         evaluate(model, data, params, split='test')
 
-    # Load the best saved model.
-    with open(params.save, 'rb') as f:
-        model = torch.load(f)
-        # Make rnn params a continuous chunk to speed up forward pass.
-        if params.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
-            model.rnn.flatten_parameters()
+    # # Load the best saved model.
+    # with open(params.save, 'rb') as f:
+    #     model = torch.load(f)
+    #     # Make rnn params a continuous chunk to speed up forward pass.
+    #     if params.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
+    #         model.rnn.flatten_parameters()
 
-    # Run on test data.
-    test_loss = evaluate(test_data)
-    print('=' * 89)
-    print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
-        test_loss, math.exp(test_loss)))
+    # # Run on test data.
+    # test_loss = evaluate(test_data)
+    # print('=' * 89)
+    # print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
+    #     test_loss, math.exp(test_loss)))
 
 
 if __name__ == "__main__":

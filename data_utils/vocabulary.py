@@ -4,8 +4,8 @@ import os
 import pickle
 
 # Special sequencing tokens.
-UNK_TOK = "_UNK"  # Replaces out-of-vocabulary words.
-EOS_TOK = "_EOS"  # Appended to the end of a sequence to indicate its end.
+UNK_TOK = "_UNK" # Replaces out-of-vocabulary words.
+EOS_TOK = "_EOS" # Appended to the end of a sequence to indicate its end.
 DEL_TOK = ";"
 
 

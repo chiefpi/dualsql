@@ -1,11 +1,106 @@
 """ Embedder for tokens. """
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import data_utils.snippet as snippet_handler
 import data_utils.vocabulary as vocabulary_handler
+
+
+def load_vocab_embs(vocab, emb_file):
+
+    def read_glove_emb(emb_file, emb_dim):
+        glove_embs = {}
+    
+        with open(emb_file) as f:
+            cnt = 1
+            for line in f:
+                cnt += 1
+                l_split = line.split()
+                word = " ".join(l_split[0:len(l_split)-emb_dim])
+                emb = np.array([float(val) for val in l_split[-emb_dim:]])
+                glove_embs[word] = emb
+    
+        return glove_embs
+  
+    print('Loading Glove Embedding from', emb_file)
+    glove_emb_dim = 300
+    glove_embs = read_glove_emb(emb_file, glove_emb_dim)
+    print('Done')
+
+    def create_word_embs(vocab):
+        vocab_embs = np.zeros((len(vocab), glove_emb_dim), dtype=np.float32)
+        vocab_tokens = vocab.inorder_tokens
+    
+        glove_oov = 0
+        para_oov = 0
+        for token in vocab_tokens:
+            token_id = vocab.token_to_id(token)
+            if token in glove_embs:
+                vocab_embs[token_id][:glove_emb_dim] = glove_embs[token] # TODO: unnecessary slice
+            else:
+                glove_oov += 1
+    
+        print('Glove OOV:', glove_oov, 'Para OOV', para_oov, 'Total', len(vocab))
+    
+        return vocab_embs
+  
+    vocab_embs = create_word_embs(vocab)
+  
+    return vocab_embs, glove_emb_dim
+
+
+def load_all_embs(input_vocab, output_vocab, output_vocab_schema, emb_file):
+    print(output_vocab.inorder_tokens)
+    print()
+  
+    def read_glove_emb(emb_file, emb_size):
+        glove_embs = {}
+    
+        with open(emb_file) as f:
+            cnt = 1
+            for line in f:
+                cnt += 1
+                l_split = line.split()
+                word = " ".join(l_split[0:len(l_split)-emb_size])
+                emb = np.array([float(val) for val in l_split[-emb_size:]])
+                glove_embs[word] = emb
+    
+        return glove_embs
+  
+    print('Loading Glove Embedding from', emb_file)
+    glove_emb_size = 300
+    glove_embs = read_glove_emb(emb_file, glove_emb_size)
+    print('Done')
+  
+    input_emb_size = glove_emb_size
+  
+    def create_word_embs(vocab):
+        vocab_embs = np.zeros((len(vocab), glove_emb_size), dtype=np.float32)
+        vocab_tokens = vocab.inorder_tokens
+    
+        glove_oov = 0
+        para_oov = 0
+        for token in vocab_tokens:
+            token_id = vocab.token_to_id(token)
+            if token in glove_embs:
+                vocab_embs[token_id][:glove_emb_size] = glove_embs[token]
+            else:
+                glove_oov += 1
+    
+        print('Glove OOV:', glove_oov, 'Para OOV', para_oov, 'Total', len(vocab))
+    
+        return vocab_embs
+  
+    input_vocab_embs = create_word_embs(input_vocab)
+    output_vocab_embs = create_word_embs(output_vocab)
+    output_vocab_schema_embs = None
+    if output_vocab_schema:
+        output_vocab_schema_embs = create_word_embs(output_vocab_schema)
+  
+    return input_vocab_embs, output_vocab_embs, output_vocab_schema_embs, input_emb_size
+
 
 class Embedder(nn.Module):
     """Embeds tokens."""

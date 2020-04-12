@@ -1,7 +1,7 @@
 """Gets and stores vocabulary for the data."""
 
-import snippets
-from vocabulary import Vocabulary, UNK_TOK, DEL_TOK, EOS_TOK
+from data_utils import snippets
+from data_utils.vocabulary import Vocabulary, UNK_TOK, DEL_TOK, EOS_TOK
 
 INPUT_FN_TYPES = [UNK_TOK, DEL_TOK, EOS_TOK]
 OUTPUT_FN_TYPES = [UNK_TOK, EOS_TOK]
@@ -9,8 +9,8 @@ OUTPUT_FN_TYPES = [UNK_TOK, EOS_TOK]
 MIN_INPUT_OCCUR = 1
 MIN_OUTPUT_OCCUR = 1
 
-class Vocabulary():
-    """ Stores the vocabulary for the data.
+class DataVocab:
+    """Stores the vocabulary for the data.
 
     Attributes:
         raw_vocab (Vocabulary): Vocabulary object.

@@ -1,9 +1,8 @@
 """Contains various utility functions."""
 def subsequence(first_sequence, second_sequence):
-    """
-    Returns whether the first sequence is a subsequence of the second sequence.
+    """Returns whether the first sequence is a subsequence of the second sequence.
 
-    Inputs:
+    Args:
         first_sequence (list): A sequence.
         second_sequence (list): Another sequence.
 

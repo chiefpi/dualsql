@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 from utils.constants import *
@@ -8,12 +7,12 @@ from utils.tensors import lens2mask
 
 class RewardModel():
 
-    def __init__(self, dataset, qlm, lflm, lm_vocab, sp_device='cpu', qg_device='cpu'):
+    def __init__(self, utter_lm, query_lm, vocab,
+            sp_device='cpu', qg_device='cpu'):
         super(RewardModel, self).__init__()
-        self.dataset = dataset
-        self.qlm = qlm.to(sp_device) # query language model
-        self.lflm = lflm.to(qg_device) # logical form language model
-        self.vocab = lm_vocab
+        self.utter_lm = utter_lm.to(sp_device) # utterance language model
+        self.query_lm = query_lm.to(qg_device) # query language model
+        self.vocab = vocab
         self.sp_device = sp_device
         self.qg_device = qg_device
 
@@ -25,19 +24,19 @@ class RewardModel():
         elif 'rec' in choice:
             return self.reconstruction_reward(*args)
         else:
-            raise ValueError('[Error]: unknown reward choice!')
+            raise ValueError('Unknown reward choice')
 
     def sp_validity_reward(self, lf_list):
-        # calculate logical form language model length normalized log probability
+        # calculate query language model length normalized log probability
         input_idxs = [[self.vocab.lf2id[BOS]] + [self.vocab.lf2id[word] if word in self.vocab.lf2id else self.vocab.lf2id[UNK] for word in sent] + [self.vocab.word2id[EOS]] for sent in lf_list]
         lens = [len(each) for each in input_idxs]
         max_len = max(lens)
         input_idxs = [sent + [self.vocab.lf2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
         input_tensor = torch.tensor(input_idxs, dtype=torch.long, device=self.qg_device)
         lens = torch.tensor(lens, dtype=torch.long, device=self.qg_device)
-        self.lflm.eval()
+        self.query_lm.eval()
         with torch.no_grad():
-            logprob = self.lflm.sent_logprobability(input_tensor, lens).cpu()
+            logprob = self.query_lm.sentence_log_prob(input_tensor, lens).cpu()
         # grammar check
         domain = Example.domain
         ans = domain.is_valid(domain.obtain_denotations(domain.normalize(lf_list)))
@@ -46,23 +45,26 @@ class RewardModel():
         return val_reward
 
     def qg_validity_reward(self, utterances):
-        # calculate language model length normalized log probability
+        # calculate utterance language model length normalized log probability
         input_idxs = [[self.vocab.word2id[BOS]] + [self.vocab.word2id[word] if word in self.vocab.word2id else self.vocab.word2id[UNK] for word in sent] + [self.vocab.word2id[EOS]] for sent in utterances]
         lens = [len(each) for each in input_idxs]
         max_len = max(lens)
         input_idxs = [sent + [self.vocab.word2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
         input_tensor = torch.tensor(input_idxs, dtype=torch.long, device=self.sp_device)
         lens = torch.tensor(lens, dtype=torch.long, device=self.sp_device)
-        self.qlm.eval()
+        self.utter_lm.eval()
         with torch.no_grad():
-            logprob = self.qlm.sent_logprobability(input_tensor, lens).cpu()
+            logprob = self.utter_lm.sentence_log_prob(input_tensor, lens).cpu()
         return logprob
 
     def reconstruction_reward(self, logscores, references, lens):
         """
-        logscores: bsize x max_out_len x vocab_size[ + MAX_OOV_NUM]
-        references: bsize x max_out_len
-        lens: len for each sample
+        Args:
+            logscores: bsize x max_out_len x vocab_size[ + MAX_OOV_NUM]
+            references: bsize x max_out_len
+            lens: len for each sample
+        Returns:
+            bsize x 
         """
         mask = lens2mask(lens)
         pick_score = torch.gather(logscores, dim=-1, index=references.unsqueeze(dim=-1)).squeeze(dim=-1)

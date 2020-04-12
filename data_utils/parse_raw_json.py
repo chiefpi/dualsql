@@ -1,3 +1,4 @@
+# TODO: simplify data utils
 import os, sys
 import json
 import sqlite3

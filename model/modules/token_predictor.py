@@ -3,50 +3,53 @@
 from collections import namedtuple
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-import torch_utils
 
+import torch_utils
 from attention import Attention, AttentionResult
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class PredictionInput(namedtuple('PredictionInput',
-                                 ('decoder_state',
-                                  'input_hidden_states',
-                                  'snippets',
-                                  'input_sequence'))):
-    """ Inputs to the token predictor. """
+class PredictionInput(namedtuple(
+        'PredictionInput',
+        ('decoder_state',
+        'input_hidden_states',
+        'snippets',
+        'input_sequence'))):
+    """Inputs to the token predictor. """
     __slots__ = ()
 
-class PredictionInputWithSchema(namedtuple('PredictionInputWithSchema',
-                                 ('decoder_state',
-                                  'input_hidden_states',
-                                  'schema_states',
-                                  'snippets',
-                                  'input_sequence',
-                                  'previous_queries',
-                                  'previous_query_states',
-                                  'input_schema'))):
-    """ Inputs to the token predictor. """
+class PredictionInputWithSchema(namedtuple(
+        'PredictionInputWithSchema',
+        ('decoder_state',
+        'input_hidden_states',
+        'schema_states',
+        'snippets',
+        'input_sequence',
+        'previous_queries',
+        'previous_query_states',
+        'input_schema'))):
+    """Inputs to the token predictor. """
     __slots__ = ()
 
 
-class TokenPrediction(namedtuple('TokenPrediction',
-                                 ('scores',
-                                  'aligned_tokens',
-                                  'utterance_attention_results',
-                                  'schema_attention_results',
-                                  'query_attention_results',
-                                  'copy_switch',
-                                  'query_scores',
-                                  'query_tokens',
-                                  'decoder_state'))):
-
+class TokenPrediction(namedtuple(
+        'TokenPrediction',
+        ('scores',
+        'aligned_tokens',
+        'utterance_attention_results',
+        'schema_attention_results',
+        'query_attention_results',
+        'copy_switch',
+        'query_scores',
+        'query_tokens',
+        'decoder_state'))):
     """A token prediction."""
     __slots__ = ()
 
 def score_snippets(snippets, scorer):
-    """ Scores snippets given a scorer.
+    """Scores snippets given a scorer.
 
     Inputs:
         snippets (list of Snippet): The snippets to score.
@@ -79,7 +82,7 @@ def score_query_tokens(previous_query, previous_query_states, scorer):
         raise ValueError("Got " + str(scores.size()[0]) + " scores for " + str(len(previous_query)) + " query tokens")
     return scores, previous_query
 
-class TokenPredictor(torch.nn.Module):
+class TokenPredictor(nn.Module):
     """ Predicts a token given a (decoder) state.
 
     Attributes:
@@ -341,9 +344,7 @@ class AnonymizationTokenPredictor(TokenPredictor):
         else:
             return None, []
 
-    def forward(self,
-                 prediction_input,
-                 dropout_amount=0.):
+    def forward(self, prediction_input, dropout_amount=0.):
         decoder_state = prediction_input.decoder_state
         input_hidden_states = prediction_input.input_hidden_states
         input_sequence = prediction_input.input_sequence

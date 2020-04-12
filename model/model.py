@@ -72,59 +72,6 @@ def encode_snippets_with_states(snippets, states):
         snippet.set_embedding(torch.cat([states[snippet.startpos],states[snippet.endpos]], dim=0))
     return snippets
 
-def load_word_embeddings(input_vocabulary, output_vocabulary, output_vocabulary_schema, params):
-    print(output_vocabulary.inorder_tokens)
-    print()
-  
-    def read_glove_embedding(embedding_filename, embedding_size):
-        glove_embeddings = {}
-    
-        with open(embedding_filename) as f:
-            cnt = 1
-            for line in f:
-                cnt += 1
-                if params.debug or not params.train:
-                    if cnt == 1000:
-                        print('Read 1000 word embeddings')
-                        break
-                l_split = line.split()
-                word = " ".join(l_split[0:len(l_split) - embedding_size])
-                embedding = np.array([float(val) for val in l_split[-embedding_size:]])
-                glove_embeddings[word] = embedding
-    
-        return glove_embeddings
-  
-    print('Loading Glove Embedding from', params.embedding_filename)
-    glove_embedding_size = 300
-    glove_embeddings = read_glove_embedding(params.embedding_filename, glove_embedding_size)
-    print('Done')
-  
-    input_embedding_size = glove_embedding_size
-  
-    def create_word_embeddings(vocab):
-        vocabulary_embeddings = np.zeros((len(vocab), glove_embedding_size), dtype=np.float32)
-        vocabulary_tokens = vocab.inorder_tokens
-    
-        glove_oov = 0
-        para_oov = 0
-        for token in vocabulary_tokens:
-            token_id = vocab.token_to_id(token)
-            if token in glove_embeddings:
-                vocabulary_embeddings[token_id][:glove_embedding_size] = glove_embeddings[token]
-            else:
-                glove_oov += 1
-    
-        print('Glove OOV:', glove_oov, 'Para OOV', para_oov, 'Total', len(vocab))
-    
-        return vocabulary_embeddings
-  
-    input_vocabulary_embeddings = create_word_embeddings(input_vocabulary)
-    output_vocabulary_embeddings = create_word_embeddings(output_vocabulary)
-    output_vocabulary_schema_embeddings = None
-    if output_vocabulary_schema:
-        output_vocabulary_schema_embeddings = create_word_embeddings(output_vocabulary_schema)
-  
-    return input_vocabulary_embeddings, output_vocabulary_embeddings, output_vocabulary_schema_embeddings, input_embedding_size
 
 class Seq2Seq(nn.Module):
     """Sequence-to-sequence model for predicting a SQL query given an utterance

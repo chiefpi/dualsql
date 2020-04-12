@@ -3,7 +3,9 @@
 from collections import namedtuple
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+
 import torch_utils
 
 class AttentionResult(namedtuple('AttentionResult',
@@ -14,7 +16,7 @@ class AttentionResult(namedtuple('AttentionResult',
     __slots__ = ()
 
 
-class Attention(torch.nn.Module):
+class Attention(nn.Module):
     """Attention mechanism class. Stores parameters for and computes attention.
 
     Attributes:

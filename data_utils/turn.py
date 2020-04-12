@@ -1,17 +1,18 @@
-""" Contains the Utterance class. """
+"""Contains the Turn class."""
 
-import sql_util
-import tokenizers
+from data_utils import sql_util
+from data_utils import tokenizer
 
 ANON_INPUT_KEY = "cleaned_nl"
 OUTPUT_KEY = "sql"
 
-class Utterance:
-    """ Utterance class. """
-    def process_input_seq(self,
-                          anonymize,
-                          anonymizer,
-                          anon_tok_to_ent):
+class Turn:
+    """Interaction Turn class."""
+    def process_input_seq(
+            self, 
+            anonymize,
+            anonymizer,
+            anon_tok_to_ent):
         assert not anon_tok_to_ent or anonymize
         assert not anonymize or anonymizer
 
@@ -23,13 +24,14 @@ class Utterance:
         else:
             self.input_seq_to_use = self.original_input_seq
 
-    def process_gold_seq(self,
-                         output_sequences,
-                         nl_to_sql_dict,
-                         available_snippets,
-                         anonymize,
-                         anonymizer,
-                         anon_tok_to_ent):
+    def process_gold_seq(
+            self,
+            output_sequences,
+            nl_to_sql_dict,
+            available_snippets,
+            anonymize,
+            anonymizer,
+            anon_tok_to_ent):
         # Get entities in the input sequence:
         #    anonymized entity types
         #    othe recognized entities (this includes "flight")
@@ -62,16 +64,17 @@ class Utterance:
         self.gold_query_to_use = sql_util.add_snippets_to_query(
             available_snippets, entities_in_input, self.anonymized_gold_query)
 
-    def __init__(self,
-                 example,
-                 available_snippets,
-                 nl_to_sql_dict,
-                 params,
-                 anon_tok_to_ent={},
-                 anonymizer=None):
+    def __init__(
+            self,
+            example,
+            available_snippets,
+            nl_to_sql_dict,
+            params,
+            anon_tok_to_ent={},
+            anonymizer=None):
         # Get output and input sequences from the dictionary representation.
         output_sequences = example[OUTPUT_KEY]
-        self.original_input_seq = tokenizers.nl_tokenize(example[params.input_key])
+        self.original_input_seq = tokenizer.nl_tokenize(example[params.input_key])
         self.available_snippets = available_snippets
         self.keep = False
 
@@ -88,17 +91,19 @@ class Utterance:
             return
 
         # Process the input sequence
-        self.process_input_seq(params.anonymize,
-                               anonymizer,
-                               anon_tok_to_ent)
+        self.process_input_seq(
+            params.anonymize,
+            anonymizer,
+            anon_tok_to_ent)
 
         # Process the gold sequence
-        self.process_gold_seq(output_sequences,
-                              nl_to_sql_dict,
-                              self.available_snippets,
-                              params.anonymize,
-                              anonymizer,
-                              anon_tok_to_ent)
+        self.process_gold_seq(
+            output_sequences,
+            nl_to_sql_dict,
+            self.available_snippets,
+            params.anonymize,
+            anonymizer,
+            anon_tok_to_ent)
 
     def __str__(self):
         string = "Original input: " + " ".join(self.original_input_seq) + "\n"

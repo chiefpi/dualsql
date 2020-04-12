@@ -1,3 +1,5 @@
+"""Currently not used."""
+
 import torch
 
 from model_utils.penalty import PenaltyBuilder

@@ -1,3 +1,4 @@
+# TODO: remove this
 """ Contains the Snippet class and methods for handling snippets.
 
 Attributes:

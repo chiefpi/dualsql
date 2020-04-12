@@ -1,4 +1,4 @@
-"""Tokenizers for natural language SQL queries, and lambda calculus."""
+"""Tokenizers for natural language and SQL queries."""
 import nltk
 import sqlparse
 
@@ -15,7 +15,7 @@ def nl_tokenize(string):
     return nltk.word_tokenize(string)
 
 def sql_tokenize(string):
-    """ Tokenizes a SQL statement into tokens.
+    """Tokenizes a SQL statement into tokens.
 
     Inputs:
        string: string to tokenize.
@@ -48,35 +48,3 @@ def sql_tokenize(string):
             keep = True
 
     return newtokens
-
-def lambda_tokenize(string):
-    """ Tokenizes a lambda-calculus statement into tokens.
-
-    Inputs:
-       string: a lambda-calculus string
-
-    Outputs:
-       a list of tokens.
-    """
-
-    space_separated = string.split(" ")
-
-    new_tokens = []
-
-    # Separate the string by spaces, then separate based on existence of ( or
-    # ).
-    for token in space_separated:
-        tokens = []
-
-        current_token = ""
-        for char in token:
-            if char == ")" or char == "(":
-                tokens.append(current_token)
-                tokens.append(char)
-                current_token = ""
-            else:
-                current_token += char
-        tokens.append(current_token)
-        new_tokens.extend([tok for tok in tokens if tok])
-
-    return new_tokens

@@ -1,30 +1,33 @@
 """ Decoder for the SQL generation problem."""
 
 from collections import namedtuple
+
 import numpy as np
-
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-import torch_utils
 
-from token_predictor import PredictionInput, PredictionInputWithSchema
 import data_util.snippets as snippet_handler
-import embedder
 from data_util.vocabulary import EOS_TOK, UNK_TOK
 
+import embedder
+import torch_utils
+from token_predictor import PredictionInput, PredictionInputWithSchema
+
+
 def flatten_distribution(distribution_map, probabilities):
-    """ Flattens a probability distribution given a map of "unique" values.
-        All values in distribution_map with the same value should get the sum
-        of the probabilities.
+    """Flattens a probability distribution given a map of "unique" values.
+    All values in distribution_map with the same value should get the sum
+    of the probabilities.
 
-        Arguments:
-            distribution_map (list of str): List of values to get the probability for.
-            probabilities (np.ndarray): Probabilities corresponding to the values in
-                distribution_map.
+    Args:
+        distribution_map (list of str): List of values to get the probability for.
+        probabilities (np.ndarray): Probabilities corresponding to the values in
+            distribution_map.
 
-        Returns:
-            list, np.ndarray of the same size where probabilities for duplicates
-                in distribution_map are given the sum of the probabilities in probabilities.
+    Returns:
+        list, np.ndarray of the same size where probabilities for duplicates
+            in distribution_map are given the sum of the probabilities in probabilities.
     """
     assert len(distribution_map) == len(probabilities)
     if len(distribution_map) != len(set(distribution_map)):
@@ -61,29 +64,31 @@ def flatten_distribution(distribution_map, probabilities):
 
     return new_dist_map, new_probs
 
-class SQLPrediction(namedtuple('SQLPrediction',
-                               ('predictions',
-                                'sequence',
-                                'probability'))):
+class SQLPrediction(namedtuple(
+        'SQLPrediction',
+        ('predictions',
+        'sequence',
+        'probability'))):
     """Contains prediction for a sequence."""
     __slots__ = ()
 
     def __str__(self):
         return str(self.probability) + "\t" + " ".join(self.sequence)
 
-class SequencePredictorWithSchema(torch.nn.Module):
-    """ Predicts a sequence.
+class SequencePredictorWithSchema(nn.Module):
+    """Predicts a sequence.
 
     Attributes:
         lstms (list of dy.RNNBuilder): The RNN used.
         token_predictor (TokenPredictor): Used to actually predict tokens.
     """
-    def __init__(self,
-                 params,
-                 input_size,
-                 output_embedder,
-                 column_name_token_embedder,
-                 token_predictor):
+    def __init__(
+            self,
+            params,
+            input_size,
+            output_embedder,
+            column_name_token_embedder,
+            token_predictor):
         super().__init__()
 
         self.lstms = torch_utils.create_multilayer_lstm_params(params.decoder_num_layers, input_size, params.decoder_state_size, "LSTM-d")
@@ -132,19 +137,20 @@ class SequencePredictorWithSchema(torch.nn.Module):
             decoder_input = torch.cat([output_token_embedding, prediction.utterance_attention_results.vector], dim=0)
         return decoder_input
 
-    def forward(self,
-                final_encoder_state,
-                encoder_states,
-                schema_states,
-                max_generation_length,
-                snippets=None,
-                gold_sequence=None,
-                input_sequence=None,
-                previous_queries=None,
-                previous_query_states=None,
-                input_schema=None,
-                dropout_amount=0.):
-        """ Generates a sequence. """
+    def forward(
+            self,
+            final_encoder_state,
+            encoder_states,
+            schema_states,
+            max_generation_length,
+            snippets=None,
+            gold_sequence=None,
+            input_sequence=None,
+            previous_queries=None,
+            previous_query_states=None,
+            input_schema=None,
+            dropout_amount=0.):
+        """Generates a sequence."""
         index = 0
 
         context_vector_size = self.input_size - self.params.output_embedding_size
@@ -167,14 +173,15 @@ class SequencePredictorWithSchema(torch.nn.Module):
         while continue_generating:
             if len(sequence) == 0 or sequence[-1] != EOS_TOK:
                 _, decoder_state, decoder_states = torch_utils.forward_one_multilayer(self.lstms, decoder_input, decoder_states, dropout_amount)
-                prediction_input = PredictionInputWithSchema(decoder_state=decoder_state,
-                                                             input_hidden_states=encoder_states,
-                                                             schema_states=schema_states,
-                                                             snippets=snippets,
-                                                             input_sequence=input_sequence,
-                                                             previous_queries=previous_queries,
-                                                             previous_query_states=previous_query_states,
-                                                             input_schema=input_schema)
+                prediction_input = PredictionInputWithSchema(
+                    decoder_state=decoder_state,
+                    input_hidden_states=encoder_states,
+                    schema_states=schema_states,
+                    snippets=snippets,
+                    input_sequence=input_sequence,
+                    previous_queries=previous_queries,
+                    previous_query_states=previous_query_states,
+                    input_schema=input_schema)
 
                 prediction = self.token_predictor(prediction_input, dropout_amount=dropout_amount)
 
@@ -237,6 +244,4 @@ class SequencePredictorWithSchema(torch.nn.Module):
 
             index += 1
 
-        return SQLPrediction(predictions,
-                             sequence,
-                             probability)
+        return SQLPrediction(predictions, sequence, probability)

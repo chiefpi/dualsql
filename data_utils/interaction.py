@@ -1,10 +1,10 @@
-""" Contains the class for an interaction in ATIS. """
+"""Contains the class for an interaction."""
 import torch
 
-import anonymization as anon
-import sql_util
-from snippet import expand_snippets
-from utterance import Utterance, OUTPUT_KEY, ANON_INPUT_KEY
+from data_utils import anonymization as anon
+from data_utils import sql_util
+from data_utils.snippet import expand_snippets
+from data_utils.turn import Turn, OUTPUT_KEY, ANON_INPUT_KEY
 
 
 class Schema:
@@ -156,7 +156,7 @@ class Interaction:
     """ Interaction class.
 
     Attributes:
-        utterances (list of Utterance): The utterances in the interaction.
+        utterances (list of Turn): The utterances in the interaction.
         snippets (list of Snippet): The snippets that appear through the interaction.
         anon_tok_to_ent:
         identifier (str): Unique identifier for the interaction in the dataset.
@@ -267,12 +267,13 @@ def load_function(parameters,
             available_snippets = [
                 snippet for snippet in snippet_bank if snippet.index <= 1]
 
-            proc_utterance = Utterance(utterance,
-                                       available_snippets,
-                                       nl_to_sql_dict,
-                                       parameters,
-                                       anon_tok_to_ent,
-                                       anonymizer)
+            proc_utterance = Turn(
+                utterance,
+                available_snippets,
+                nl_to_sql_dict,
+                parameters,
+                anon_tok_to_ent,
+                anonymizer)
             keep_utterance = proc_utterance.keep
 
             if schema:
@@ -284,14 +285,9 @@ def load_function(parameters,
 
                 # Update the snippet bank, and age each snippet in it.
                 if parameters.use_snippets:
-                    if 'atis' in parameters.data_directory:
-                        snippets = sql_util.get_subtrees(
-                            proc_utterance.anonymized_gold_query,
-                            proc_utterance.available_snippets)
-                    else:
-                        snippets = sql_util.get_subtrees_simple(
-                            proc_utterance.anonymized_gold_query,
-                            proc_utterance.available_snippets)
+                    snippets = sql_util.get_subtrees_simple(
+                        proc_utterance.anonymized_gold_query,
+                        proc_utterance.available_snippets)
 
                     for snippet in snippets:
                         snippet.assign_id(len(snippet_bank))

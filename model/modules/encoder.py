@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from torch_utils import create_multilayer_lstm_params, encode_sequence
 
 class Encoder(nn.Module):

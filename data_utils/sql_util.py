@@ -1,13 +1,14 @@
 import copy
-import pymysql
 import random
 import signal
-import sqlparse
-import util
 
-from snippets import Snippet
+import pymysql
+import sqlparse
 from sqlparse import tokens as token_types
 from sqlparse import sql as sql_types
+
+from data_utils import util
+from data_utils.snippet import Snippet
 
 interesting_selects = ["DISTINCT", "MAX", "MIN", "count"]
 ignored_subtrees = [["1", "=", "1"]]
@@ -404,7 +405,7 @@ def execution_results(query, username, password, timeout=3):
         signal.alarm(timeout)
         try:
             cursor.execute("SET sql_mode='IGNORE_SPACE';")
-            cursor.execute("use atis3;")
+            cursor.execute("use atis3;") # TODO: remove it
             cursor.execute(query)
             table = cursor.fetchall()
             cursor.close()

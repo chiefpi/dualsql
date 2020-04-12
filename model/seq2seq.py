@@ -8,10 +8,9 @@ from beam import Beam, GNMTGlobalScorer
 
 
 class Seq2Seq(nn.Module):
-    """
-    Seq2Seq with attention
-    - Encoder: Bi-LSTM
-    - Decoder: undirectional LSTM
+    """ Seq2Seq with attention
+    Encoder: Bi-LSTM
+    Decoder: undirectional LSTM
     """
     def __init__(
         self, src_vocab=None, tgt_vocab=None,

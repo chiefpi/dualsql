@@ -2,66 +2,62 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .encoder import Encoder
-from .attention import Attention
+from encoder import Encoder
+from attention import Attention
 
 
 class TextSchemaEncoder(nn.Module):
-    """Encodes the text and schema using co-attention.
-    """
+    """Encodes the text and schema using co-attention."""
 
-    def __init__(self, params):
+    def __init__(
+            self,
+            schema_encoder_num_layer,
+            schema_encoder_input_size,
+            schema_encoder_state_size,
+            schema_attention_key_size,
+            encoder_num_layer,
+            encoder_state_size,
+            text_attention_key_size,
+            use_text_schema_attention=True):
+
         super().__init__()
 
-        # unpack params
-        self.schema_encoder_num_layer = 1
-        self.schema_encoder_input_size = params.schema_encoder_input_size
-        self.schema_encoder_state_size = params.schema_encoder_state_size
-        self.schema_attention_key_size = params.schema_attention_key_size
-        self.use_text_schema_attention = params.use_text_schema_attention
-        self.encoder_num_layer = 0
-        self.encoder_state_size = params.encoder_state_size
-        self.text_attention_key_size = 0
-
         # create the schema encoder
-        self.schema_encoder = Encoder(self.schema_encoder_num_layer, self.schema_encoder_input_size, self.schema_encoder_state_size)
+        self.schema_encoder = Encoder(schema_encoder_num_layer, schema_encoder_input_size, schema_encoder_state_size)
 
         # self-attention
-        self.schema2schema_attention = Attention(self.schema_attention_key_size, self.schema_attention_key_size, self.schema_attention_key_size)
+        self.schema2schema_attention = Attention(schema_attention_key_size, schema_attention_key_size, schema_attention_key_size)
 
         # text-level attention
-        self.text_attention = Attention(self.encoder_state_size, self.encoder_state_size, self.encoder_state_size)
+        self.text_attention = Attention(encoder_state_size, encoder_state_size, encoder_state_size)
 
         # use attention module between input_hidden_states and schema_states
         # schema_states: self.schema_attention_key_size x len(schema)
         # input_hidden_states: self.text_attention_key_size x len(input)
         if self.use_text_schema_attention:
-            self.text2schema_attention = Attention(self.schema_attention_key_size, self.text_attention_key_size, self.text_attention_key_size)
-            self.schema2text_attention = Attention(self.text_attention_key_size, self.schema_attention_key_size, self.schema_attention_key_size)
+            self.text2schema_attention = Attention(schema_attention_key_size, text_attention_key_size, text_attention_key_size)
+            self.schema2text_attention = Attention(text_attention_key_size, schema_attention_key_size, schema_attention_key_size)
 
         # concatenation
-        self.schema_attention_key_size = self.schema_attention_key_size + self.text_attention_key_size
-        self.text_attention_key_size = self.schema_attention_key_size + self.text_attention_key_size
+        schema_attention_key_size = schema_attention_key_size + text_attention_key_size
+        text_attention_key_size = schema_attention_key_size + text_attention_key_size
 
-        self.schema_encoder_2 = Encoder(self.schema_encoder_num_layer, self.schema_attention_key_size, self.schema_attention_key_size)
-        self.text_encoder_2 = Encoder(self.encoder_num_layers, self.text_attention_key_size, self.text_attention_key_size)
+        self.schema_encoder_2 = Encoder(schema_encoder_num_layer, schema_attention_key_size, schema_attention_key_size)
+        self.text_encoder_2 = Encoder(encoder_num_layer, text_attention_key_size, text_attention_key_size)
 
     def forward(
             self,
             text_final_state,
-            input_hidden_states,
             schema_states,
-            max_generation_length,
+            input_hidden_states,
+            max_gen_length,
             gold_query=None,
-            snippets=None,
             input_sequence=None,
             previous_queries=None,
             previous_query_states=None,
-            input_schema=None,
-            feed_gold_tokens=False,
-            training=False):
-        """Takes 
-        """
+            input_schema=None):
+        """Generates the column head embedding and text token embedding."""
+
         schema_attention = self.text2schema_attention(torch.stack(schema_states, dim=0), input_hidden_states).vector # input_value_size x len(schema)
         text_attention = self.schema2text_attention(torch.stack(input_hidden_states, dim=0), schema_states).vector # schema_value_size x len(input)
 
@@ -84,11 +80,6 @@ class TextSchemaEncoder(nn.Module):
 
         return final_schema_state, final_text_state
     
-    def loss(
-            self,
-
-        )
-
     def encode_schema_bow_simple(self, input_schema):
         schema_states = []
         for column_name in input_schema.column_names_embedder_input:
@@ -190,5 +181,5 @@ class TextSchemaEncoder(nn.Module):
         final_text_state_attention_h = final_text_states_h[-1] + attention_result.vector.squeeze()
 
         final_text_state = ([final_text_state_attention_c],[final_text_state_attention_h])
-        
+
         return final_text_states_c, final_text_states_h, final_text_state

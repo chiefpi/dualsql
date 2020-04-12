@@ -1,9 +1,11 @@
 import torch
 
 def lens2mask(lens):
-    """
-    @lens: bsize
-    @return: masks of length, bsize x max_len
+    """Calculates masks for lengths
+    Args:
+        lens (list of int): bsize
+    Returns:
+        Tensor: masks of length, bsize x max_len
     """
     bsize = lens.numel()
     max_len = lens.max()
