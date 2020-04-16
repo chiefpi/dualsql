@@ -1,4 +1,4 @@
-""" Decoder for the SQL generation problem."""
+"""Decoder for the SQL generation problem."""
 
 from collections import namedtuple
 
@@ -7,8 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import data_util.snippets as snippet_handler
-from data_util.vocabulary import EOS_TOK, UNK_TOK
+from data_utils.vocabulary import EOS_TOK, UNK_TOK
 
 import embedder
 import torch_utils
@@ -73,13 +72,13 @@ class SQLPrediction(namedtuple(
     __slots__ = ()
 
     def __str__(self):
-        return str(self.probability) + "\t" + " ".join(self.sequence)
+        return str(self.probability) + '\t' + ' '.join(self.sequence)
 
 class SequencePredictorWithSchema(nn.Module):
     """Predicts a sequence.
 
     Attributes:
-        lstms (list of dy.RNNBuilder): The RNN used.
+        lstm (nn.LSTM): The RNN used.
         token_predictor (TokenPredictor): Used to actually predict tokens.
     """
     def __init__(
@@ -88,16 +87,22 @@ class SequencePredictorWithSchema(nn.Module):
             input_size,
             output_embedder,
             column_name_token_embedder,
-            token_predictor):
+            token_predictor,
+            dropout=0.):
         super().__init__()
 
-        self.lstms = torch_utils.create_multilayer_lstm_params(params.decoder_num_layers, input_size, params.decoder_state_size, "LSTM-d")
+        self.lstm = nn.LSTM(
+            input_size,
+            params.decoder_hidden_size,
+            params.decoder_num_layers,
+            dropout=dropout)
         self.token_predictor = token_predictor
         self.output_embedder = output_embedder
         self.column_name_token_embedder = column_name_token_embedder
         self.start_token_embedding = torch_utils.add_params((params.output_embedding_size,), "y-0")
 
         self.input_size = input_size
+        self.dropout = dropout
         self.params = params
 
     def _initialize_decoder_lstm(self, encoder_state):
@@ -114,18 +119,16 @@ class SequencePredictorWithSchema(nn.Module):
             decoder_lstm_states.append((h_0, c_0))
         return decoder_lstm_states
 
-    def get_output_token_embedding(self, output_token, input_schema, snippets):
-        if self.params.use_snippets and snippet_handler.is_snippet(output_token):
-            output_token_embedding = embedder.bow_snippets(output_token, snippets, self.output_embedder, input_schema)
-        else:
-            if input_schema:
-                assert self.output_embedder.in_vocabulary(output_token) or input_schema.in_vocabulary(output_token, surface_form=True)
-                if self.output_embedder.in_vocabulary(output_token):
-                    output_token_embedding = self.output_embedder(output_token)
-                else:
-                    output_token_embedding = input_schema.column_name_embedder(output_token, surface_form=True)
-            else:
+    def get_output_token_embedding(self, output_token, input_schema):
+        if input_schema:
+            assert self.output_embedder.in_vocabulary(output_token) \
+                or input_schema.in_vocabulary(output_token, surface_form=True)
+            if self.output_embedder.in_vocabulary(output_token):
                 output_token_embedding = self.output_embedder(output_token)
+            else:
+                output_token_embedding = input_schema.column_name_embedder(output_token, surface_form=True)
+        else:
+            output_token_embedding = self.output_embedder(output_token)
         return output_token_embedding
 
     def get_decoder_input(self, output_token_embedding, prediction):
@@ -143,13 +146,10 @@ class SequencePredictorWithSchema(nn.Module):
             encoder_states,
             schema_states,
             max_generation_length,
-            snippets=None,
-            gold_sequence=None,
             input_sequence=None,
-            previous_queries=None,
-            previous_query_states=None,
             input_schema=None,
-            dropout_amount=0.):
+            previous_queries=None,
+            previous_query_states=None):
         """Generates a sequence."""
         index = 0
 
@@ -172,75 +172,63 @@ class SequencePredictorWithSchema(nn.Module):
         continue_generating = True
         while continue_generating:
             if len(sequence) == 0 or sequence[-1] != EOS_TOK:
-                _, decoder_state, decoder_states = torch_utils.forward_one_multilayer(self.lstms, decoder_input, decoder_states, dropout_amount)
+                # _, decoder_state, decoder_states = torch_utils.forward_one_multilayer(self.lstms, decoder_input, decoder_states, dropout_amount)
+                decoder_output, decoder_states = self.lstm(decoder_input, decoder_states)
                 prediction_input = PredictionInputWithSchema(
-                    decoder_state=decoder_state,
+                    decoder_state=decoder_output, # TODO: check
                     input_hidden_states=encoder_states,
                     schema_states=schema_states,
-                    snippets=snippets,
                     input_sequence=input_sequence,
                     previous_queries=previous_queries,
                     previous_query_states=previous_query_states,
                     input_schema=input_schema)
 
-                prediction = self.token_predictor(prediction_input, dropout_amount=dropout_amount)
+                prediction = self.token_predictor(prediction_input, dropout=self.dropout)
 
                 predictions.append(prediction)
 
-                if gold_sequence:
-                    output_token = gold_sequence[index]
+                assert prediction.scores.dim() == 1
+                probabilities = F.softmax(prediction.scores, dim=0).cpu().data.numpy().tolist()
 
-                    output_token_embedding = self.get_output_token_embedding(output_token, input_schema, snippets)
+                distribution_map = prediction.aligned_tokens
+                assert len(probabilities) == len(distribution_map)
 
-                    decoder_input = self.get_decoder_input(output_token_embedding, prediction)
+                if self.params.use_previous_query and self.params.use_copy_switch and len(previous_queries) > 0:
+                    assert prediction.query_scores.dim() == 1
+                    query_token_probabilities = F.softmax(prediction.query_scores, dim=0).cpu().data.numpy().tolist()
 
-                    sequence.append(gold_sequence[index])
+                    query_token_distribution_map = prediction.query_tokens
 
-                    if index >= len(gold_sequence) - 1:
-                        continue_generating = False
-                else:
-                    assert prediction.scores.dim() == 1
-                    probabilities = F.softmax(prediction.scores, dim=0).cpu().data.numpy().tolist()
+                    assert len(query_token_probabilities) == len(query_token_distribution_map)
 
-                    distribution_map = prediction.aligned_tokens
+                    copy_switch = prediction.copy_switch.cpu().data.numpy()
+
+                    # Merge the two
+                    probabilities = ((np.array(probabilities) * (1 - copy_switch)).tolist() + 
+                                        (np.array(query_token_probabilities) * copy_switch).tolist()
+                                        )
+                    distribution_map =  distribution_map + query_token_distribution_map
                     assert len(probabilities) == len(distribution_map)
 
-                    if self.params.use_previous_query and self.params.use_copy_switch and len(previous_queries) > 0:
-                        assert prediction.query_scores.dim() == 1
-                        query_token_probabilities = F.softmax(prediction.query_scores, dim=0).cpu().data.numpy().tolist()
+                # Get a new probabilities and distribution_map consolidating duplicates
+                distribution_map, probabilities = flatten_distribution(distribution_map, probabilities)
 
-                        query_token_distribution_map = prediction.query_tokens
+                # Modify the probability distribution so that the UNK token can never be produced
+                probabilities[distribution_map.index(UNK_TOK)] = 0.
+                argmax_index = int(np.argmax(probabilities))
 
-                        assert len(query_token_probabilities) == len(query_token_distribution_map)
+                argmax_token = distribution_map[argmax_index]
+                sequence.append(argmax_token)
 
-                        copy_switch = prediction.copy_switch.cpu().data.numpy()
+                output_token_embedding = self.get_output_token_embedding(argmax_token, input_schema)
 
-                        # Merge the two
-                        probabilities = ((np.array(probabilities) * (1 - copy_switch)).tolist() + 
-                                         (np.array(query_token_probabilities) * copy_switch).tolist()
-                                         )
-                        distribution_map =  distribution_map + query_token_distribution_map
-                        assert len(probabilities) == len(distribution_map)
+                decoder_input = self.get_decoder_input(output_token_embedding, prediction)
 
-                    # Get a new probabilities and distribution_map consolidating duplicates
-                    distribution_map, probabilities = flatten_distribution(distribution_map, probabilities)
+                probability *= probabilities[argmax_index]
 
-                    # Modify the probability distribution so that the UNK token can never be produced
-                    probabilities[distribution_map.index(UNK_TOK)] = 0.
-                    argmax_index = int(np.argmax(probabilities))
-
-                    argmax_token = distribution_map[argmax_index]
-                    sequence.append(argmax_token)
-
-                    output_token_embedding = self.get_output_token_embedding(argmax_token, input_schema, snippets)
-
-                    decoder_input = self.get_decoder_input(output_token_embedding, prediction)
-
-                    probability *= probabilities[argmax_index]
-
-                    continue_generating = False
-                    if index < max_generation_length and argmax_token != EOS_TOK:
-                        continue_generating = True
+                continue_generating = False
+                if index < max_generation_length and argmax_token != EOS_TOK:
+                    continue_generating = True
 
             index += 1
 

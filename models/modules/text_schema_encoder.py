@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from encoder import Encoder
 from attention import Attention
 
 
@@ -19,31 +18,54 @@ class TextSchemaEncoder(nn.Module):
             encoder_state_size,
             text_attention_key_size,
             use_text_schema_attention=True):
-
         super().__init__()
 
         # create the schema encoder
-        self.schema_encoder = Encoder(schema_encoder_num_layer, schema_encoder_input_size, schema_encoder_state_size)
+        self.schema_encoder = nn.LSTM(
+            schema_encoder_input_size,
+            schema_encoder_state_size,
+            schema_encoder_num_layer,
+            bidirectional=True)
 
         # self-attention
-        self.schema2schema_attention = Attention(schema_attention_key_size, schema_attention_key_size, schema_attention_key_size)
+        self.schema2schema_attention = Attention(
+            schema_attention_key_size,
+            schema_attention_key_size,
+            schema_attention_key_size)
 
         # text-level attention
-        self.text_attention = Attention(encoder_state_size, encoder_state_size, encoder_state_size)
+        self.text_attention = Attention(
+            encoder_state_size,
+            encoder_state_size, 
+            encoder_state_size)
 
         # use attention module between input_hidden_states and schema_states
         # schema_states: self.schema_attention_key_size x len(schema)
         # input_hidden_states: self.text_attention_key_size x len(input)
         if self.use_text_schema_attention:
-            self.text2schema_attention = Attention(schema_attention_key_size, text_attention_key_size, text_attention_key_size)
-            self.schema2text_attention = Attention(text_attention_key_size, schema_attention_key_size, schema_attention_key_size)
+            self.text2schema_attention = Attention(
+                schema_attention_key_size,
+                text_attention_key_size,
+                text_attention_key_size)
+            self.schema2text_attention = Attention(
+                text_attention_key_size,
+                schema_attention_key_size,
+                schema_attention_key_size)
 
         # concatenation
-        schema_attention_key_size = schema_attention_key_size + text_attention_key_size
-        text_attention_key_size = schema_attention_key_size + text_attention_key_size
+        schema_attention_key_size = text_attention_key_size = \
+            schema_attention_key_size + text_attention_key_size
 
-        self.schema_encoder_2 = Encoder(schema_encoder_num_layer, schema_attention_key_size, schema_attention_key_size)
-        self.text_encoder_2 = Encoder(encoder_num_layer, text_attention_key_size, text_attention_key_size)
+        self.schema_encoder_2 = nn.LSTM(
+            schema_attention_key_size,
+            schema_attention_key_size,
+            schema_encoder_num_layer,
+            bidirectional=True)
+        self.text_encoder_2 = nn.LSTM(
+            text_attention_key_size,
+            text_attention_key_size,
+            encoder_num_layer,
+            bidirectional=True)
 
     def forward(
             self,
@@ -51,7 +73,6 @@ class TextSchemaEncoder(nn.Module):
             schema_states,
             input_hidden_states,
             max_gen_length,
-            gold_query=None,
             input_sequence=None,
             previous_queries=None,
             previous_query_states=None,
@@ -74,7 +95,8 @@ class TextSchemaEncoder(nn.Module):
         input_hidden_states = list(torch.split(new_input_hidden_states, split_size_or_sections=1, dim=1))
         input_hidden_states = [input_hidden_state.squeeze() for input_hidden_state in input_hidden_states]
 
-        # bi-lstm over schema_states and input_hidden_states (embedder is an identity function)
+        # bi-lstm over schema_states and input_hidden_states
+        # (embedder is an identity function)
         final_schema_state, schema_states = self.schema_encoder_2(schema_states, lambda x: x, dropout_amount=self.dropout)
         final_text_state, input_hidden_states = self.text_encoder_2(input_hidden_states, lambda x: x, dropout_amount=self.dropout)
 

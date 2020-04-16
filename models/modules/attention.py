@@ -1,5 +1,5 @@
-"""Contains classes for computing and keeping track of attention distributions.
-"""
+"""Contains classes for computing and keeping track of attention distributions."""
+
 from collections import namedtuple
 
 import torch
@@ -8,10 +8,10 @@ import torch.nn.functional as F
 
 import torch_utils
 
-class AttentionResult(namedtuple('AttentionResult',
-                                 ('scores',
-                                  'distribution',
-                                  'vector'))):
+
+class AttentionResult(namedtuple(
+        'AttentionResult',
+        ('scores', 'distribution', 'vector'))):
     """Stores the result of an attention calculation."""
     __slots__ = ()
 

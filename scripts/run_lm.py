@@ -15,8 +15,8 @@ from logger import Logger
 from data_utils import corpus
 from data_utils.corpus import Corpus
 from model.language_model import LanguageModel
-from model_utils.train import evaluate_utterance_sample, \
-    train_epoch_with_utterances, evaluate_using_predicted_queries
+from model_utils.train import evaluate_turn_sample, \
+    train_epoch_with_turns, evaluate_using_predicted_queries
 
 
 # Set the random seed manually for reproducibility
@@ -33,27 +33,28 @@ def get_params():
     parser.add_argument('--data_directory', type=str,
         default='data/sparc')
     parser.add_argument('--raw_train_filename', type=str,
-        default='data/cosql_data_removefrom/train.pkl')
+        default='data/sparc_data_removefrom/train.pkl')
     parser.add_argument('--raw_validation_filename', type=str,
-        default='data/cosql_data_removefrom/dev.pkl')
+        default='data/sparc_data_removefrom/dev.pkl')
+    # TODO: redundant params of data
     # Model
+    parser.add_argument('--task', choices=['utterance', 'query'])
     parser.add_argument('--emb_dim', type=int, default=300)
     parser.add_argument('--hidden_dim', type=int, default=300)
     parser.add_argument('--num_layers', type=int, default=2)
+    parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--tied', action='store_true')
     # Training
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
     parser.add_argument('--lr', type=float, default=20)
     parser.add_argument('--clip', type=float, default=0.25)
     parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--tied', action='store_true',
+    parser.add_argument('--batch_size', type=int, default=20,
         help='tie the word embedding and softmax weights')
-    parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
-    parser.add_argument('--log_dir', type=str,
+    parser.add_argument('--log_dir', type=str, 
         default='logs/language_model')
     parser.add_argument('--save_file', type=str,
         default='model.pt')
@@ -83,20 +84,22 @@ def repackage_hidden(h):
 
 
 def get_batch(batch, i):
-
+    pass
 
 
 def train(model, data, params):
     """Trains a language model on a corpus."""
 
     log = Logger(os.path.join(params.log_dir, params.log_file), 'w')
-    num_train = corpus.num_utterances(data.train_data)
-    log.put('Total number of training utterances: {:d}' % num_train)
+    num_train = corpus.num_turns(data.train_data)
+    log.put('Total number of training turns: {:d}' % num_train)
 
-    train_batches = data.get_utterance_batches(params.batch_size)
+    train_batches = data.get_turn_batches(
+        params.batch_size,
+        max_input_length=)
     # evaluation samples
-    train_samples = data.get_random_utterances(params.train_evaluation_size)
-    valid_examples = data.get_all_utterances(data.valid_data)
+    train_samples = data.get_random_turns(params.train_evaluation_size)
+    valid_examples = data.get_all_turns(data.valid_data)
 
     log.put('Number of steps per epoch: {:d}' % len(train_batches))
     log.put('Batch size: {:d}' % params.batch_size)
@@ -107,12 +110,10 @@ def train(model, data, params):
     # Loop over epochs.
     for epoch in range(params.epochs):
         log.put('Epoch: {:d}' % epoch)
-        # Turn on training mode which enables dropout.
         model.train()
         epoch_loss = 0.
         hidden = model.init_hidden(params.batch_size)
         for batch in train_batches:
-            data, targets = get_batch(batch, i)
             # Detach the hidden state from how it was previously produced.
             model.zero_grad()
             hidden = repackage_hidden(hidden)
@@ -129,11 +130,11 @@ def train(model, data, params):
 
         log.put('Train epoch loss: {:.3f}'.format(epoch_loss))
 
-        train_eval_loss = evaluate_utterance_sample(train_samples)
+        train_eval_loss = evaluate_turn_sample(train_samples)
         log.put('Train evaluation loss: {:.3f} | ppl: {:.3f}'.format(
             train_eval_loss, math.exp(train_eval_loss)))
-        
-        valid_loss = evaluate_utterance_sample(valid_examples)
+
+        valid_loss = evaluate_turn_sample(valid_examples)
         log.put('Validation loss: {:.3f} | ppl: {:.3f}'.format(
             valid_loss, math.exp(valid_loss)))
 
@@ -160,7 +161,7 @@ def evaluate(model, data, params, split):
     """
     model.load(os.path.join(params.log_dir, params.language_model_file))
     data_split = eval('data.%s_data' % split)
-    examples = data.get_all_utterances(data_split)
+    examples = data.get_all_turns(data_split)
 
     # Turn on evaluation mode which disables dropout.
     model.eval()
@@ -187,14 +188,13 @@ def main():
     data = Corpus(params)
 
     # Build the model
-    vocab_size = len(data.input_vocabulary)
     model = LanguageModel(
-        vocab_size,
-        params.emb_dim,
-        params.hidden_dim,
-        params.num_layers,
-        params.dropout,
-        params.tied).to(device)
+        vocab_size=len(data.input_vocabulary),
+        emb_file=params.emb_file,
+        hidden_dim=params.hidden_dim,
+        num_layers=params.num_layers,
+        dropout=params.dropout,
+        tie_weights=params.tied).to(device)
 
     print('=====================Model Parameters=====================')
     for name, param in model.named_parameters():

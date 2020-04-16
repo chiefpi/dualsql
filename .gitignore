@@ -9,5 +9,3 @@
 misc
 glove/*
 data/*
-!data/anonymization.txt
-!data/entities.txt

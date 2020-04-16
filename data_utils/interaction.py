@@ -1,20 +1,18 @@
 """Contains the class for an interaction."""
 import torch
 
-from data_utils import anonymization as anon
-from data_utils import sql_util
-from data_utils.snippet import expand_snippets
-from data_utils.turn import Turn, OUTPUT_KEY, ANON_INPUT_KEY
+from data_utils.turn import Turn
 
 
 class Schema:
+    # TODO: rewrite this
     def __init__(self, table_schema, simple=False):
         if simple:
-            self.helper1(table_schema)
+            self.init_simple(table_schema)
         else:
-            self.helper2(table_schema)
+            self.init(table_schema)
 
-    def helper1(self, table_schema):
+    def init_simple(self, table_schema):
         self.table_schema = table_schema
         column_names = table_schema['column_names']
         column_names_original = table_schema['column_names_original']
@@ -24,45 +22,44 @@ class Schema:
 
         column_keep_index = []
 
-        self.column_names_surface_form = []
-        self.column_names_surface_form_to_id = {}
-        for i, (table_id, column_name) in enumerate(column_names_original):
-            column_name_surface_form = column_name
-            column_name_surface_form = column_name_surface_form.lower()
-            if column_name_surface_form not in self.column_names_surface_form_to_id:
-                self.column_names_surface_form.append(column_name_surface_form)
-                self.column_names_surface_form_to_id[column_name_surface_form] = len(self.column_names_surface_form) - 1
+        self.col_names_surface = []
+        self.col_names_to_id = {}
+        for i, (table_id, col_name) in enumerate(column_names_original):
+            col_name = col_name.lower()
+            if col_name not in self.col_names_to_id:
+                self.col_names_surface.append(col_name)
+                self.col_names_to_id[col_name] = len(self.col_names_surface) - 1
                 column_keep_index.append(i)
 
         column_keep_index_2 = []
         for i, table_name in enumerate(table_names_original):
-            column_name_surface_form = table_name.lower()
-            if column_name_surface_form not in self.column_names_surface_form_to_id:
-                self.column_names_surface_form.append(column_name_surface_form)
-                self.column_names_surface_form_to_id[column_name_surface_form] = len(self.column_names_surface_form) - 1
+            col_name = table_name.lower()
+            if col_name not in self.col_names_to_id:
+                self.col_names_surface.append(col_name)
+                self.col_names_to_id[col_name] = len(self.col_names_surface) - 1
                 column_keep_index_2.append(i)
 
-        self.column_names_embedder_input = []
-        self.column_names_embedder_input_to_id = {}
+        self.col_names_emb_input = []
+        self.col_names_emb_input_to_id = {}
         for i, (table_id, column_name) in enumerate(column_names):
             column_name_embedder_input = column_name
             if i in column_keep_index:
-                self.column_names_embedder_input.append(column_name_embedder_input)
-                self.column_names_embedder_input_to_id[column_name_embedder_input] = len(self.column_names_embedder_input) - 1
+                self.col_names_emb_input.append(column_name_embedder_input)
+                self.col_names_emb_input_to_id[column_name_embedder_input] = len(self.col_names_emb_input) - 1
 
         for i, table_name in enumerate(table_names):
             column_name_embedder_input = table_name
             if i in column_keep_index_2:
-                self.column_names_embedder_input.append(column_name_embedder_input)
-                self.column_names_embedder_input_to_id[column_name_embedder_input] = len(self.column_names_embedder_input) - 1
+                self.col_names_emb_input.append(column_name_embedder_input)
+                self.col_names_emb_input_to_id[column_name_embedder_input] = len(self.col_names_emb_input) - 1
 
-        max_id_1 = max(v for k,v in self.column_names_surface_form_to_id.items())
-        max_id_2 = max(v for k,v in self.column_names_embedder_input_to_id.items())
-        assert (len(self.column_names_surface_form) - 1) == max_id_2 == max_id_1
+        max_id_1 = max(v for k,v in self.col_names_to_id.items())
+        max_id_2 = max(v for k,v in self.col_names_emb_input_to_id.items())
+        assert (len(self.col_names_surface) - 1) == max_id_2 == max_id_1
 
-        self.num_col = len(self.column_names_surface_form)
+        self.num_col = len(self.col_names_surface)
 
-    def helper2(self, table_schema):
+    def init(self, table_schema):
         self.table_schema = table_schema
         column_names = table_schema['column_names']
         column_names_original = table_schema['column_names_original']
@@ -72,28 +69,28 @@ class Schema:
 
         column_keep_index = []
 
-        self.column_names_surface_form = []
-        self.column_names_surface_form_to_id = {}
+        self.col_names_surface = []
+        self.col_names_to_id = {}
         for i, (table_id, column_name) in enumerate(column_names_original):
             if table_id >= 0:
                 table_name = table_names_original[table_id]
-                column_name_surface_form = '{}.{}'.format(table_name,column_name)
+                col_name = '{}.{}'.format(table_name,column_name)
             else:
-                column_name_surface_form = column_name
-            column_name_surface_form = column_name_surface_form.lower()
-            if column_name_surface_form not in self.column_names_surface_form_to_id:
-                self.column_names_surface_form.append(column_name_surface_form)
-                self.column_names_surface_form_to_id[column_name_surface_form] = len(self.column_names_surface_form) - 1
+                col_name = column_name
+            col_name = col_name.lower()
+            if col_name not in self.col_names_to_id:
+                self.col_names_surface.append(col_name)
+                self.col_names_to_id[col_name] = len(self.col_names_surface) - 1
                 column_keep_index.append(i)
 
-        start_i = len(self.column_names_surface_form_to_id)
+        start_i = len(self.col_names_to_id)
         for i, table_name in enumerate(table_names_original):
-            column_name_surface_form = '{}.*'.format(table_name.lower())
-            self.column_names_surface_form.append(column_name_surface_form)
-            self.column_names_surface_form_to_id[column_name_surface_form] = i + start_i
+            col_name = '{}.*'.format(table_name.lower())
+            self.col_names_surface.append(col_name)
+            self.col_names_to_id[col_name] = i + start_i
 
-        self.column_names_embedder_input = []
-        self.column_names_embedder_input_to_id = {}
+        self.col_names_emb_input = []
+        self.col_names_emb_input_to_id = {}
         for i, (table_id, column_name) in enumerate(column_names):
             if table_id >= 0:
                 table_name = table_names[table_id]
@@ -101,37 +98,37 @@ class Schema:
             else:
                 column_name_embedder_input = column_name
             if i in column_keep_index:
-                self.column_names_embedder_input.append(column_name_embedder_input)
-                self.column_names_embedder_input_to_id[column_name_embedder_input] = len(self.column_names_embedder_input) - 1
+                self.col_names_emb_input.append(column_name_embedder_input)
+                self.col_names_emb_input_to_id[column_name_embedder_input] = len(self.col_names_emb_input) - 1
 
-        start_i = len(self.column_names_embedder_input_to_id)
+        start_i = len(self.col_names_emb_input_to_id)
         for i, table_name in enumerate(table_names):
             column_name_embedder_input = table_name + ' . *'
-            self.column_names_embedder_input.append(column_name_embedder_input)
-            self.column_names_embedder_input_to_id[column_name_embedder_input] = i + start_i
+            self.col_names_emb_input.append(column_name_embedder_input)
+            self.col_names_emb_input_to_id[column_name_embedder_input] = i + start_i
 
-        assert len(self.column_names_surface_form) == len(self.column_names_surface_form_to_id) == len(self.column_names_embedder_input) == len(self.column_names_embedder_input_to_id)
+        assert len(self.col_names_surface) == len(self.col_names_to_id) == len(self.col_names_emb_input) == len(self.col_names_emb_input_to_id)
 
-        max_id_1 = max(v for k,v in self.column_names_surface_form_to_id.items())
-        max_id_2 = max(v for k,v in self.column_names_embedder_input_to_id.items())
-        assert (len(self.column_names_surface_form) - 1) == max_id_2 == max_id_1
+        assert len(self.col_names_surface)-1 == \
+            max(v for k,v in self.col_names_to_id.items()) == \
+            max(v for k,v in self.col_names_emb_input_to_id.items())
 
-        self.num_col = len(self.column_names_surface_form)
+        self.num_col = len(self.col_names_surface)
 
     def __len__(self):
         return self.num_col
 
     def in_vocabulary(self, column_name, surface_form=False):
         if surface_form:
-            return column_name in self.column_names_surface_form_to_id
+            return column_name in self.col_names_to_id
         else:
-            return column_name in self.column_names_embedder_input_to_id
+            return column_name in self.col_names_emb_input_to_id
 
     def column_name_embedder_bow(self, column_name, surface_form=False, column_name_token_embedder=None):
         assert self.in_vocabulary(column_name, surface_form)
         if surface_form:
-            column_name_id = self.column_names_surface_form_to_id[column_name]
-            column_name_embedder_input = self.column_names_embedder_input[column_name_id]
+            column_name_id = self.col_names_to_id[column_name]
+            column_name_embedder_input = self.col_names_emb_input[column_name_id]
         else:
             column_name_embedder_input = column_name
 
@@ -146,162 +143,73 @@ class Schema:
     def column_name_embedder(self, column_name, surface_form=False):
         assert self.in_vocabulary(column_name, surface_form)
         if surface_form:
-            column_name_id = self.column_names_surface_form_to_id[column_name]
+            column_name_id = self.col_names_to_id[column_name]
         else:
-            column_name_id = self.column_names_embedder_input_to_id[column_name]
+            column_name_id = self.col_names_emb_input_to_id[column_name]
 
         return self.column_name_embeddings[column_name_id]
 
+
 class Interaction:
-    """ Interaction class.
+    """Contains an interaction.
 
     Attributes:
-        utterances (list of Turn): The utterances in the interaction.
-        snippets (list of Snippet): The snippets that appear through the interaction.
-        anon_tok_to_ent:
-        identifier (str): Unique identifier for the interaction in the dataset.
+        turns (list of Turn): Turns in an interaction.
+        schema (Schema)
+        identifier (str): Identifier for an interaction.
     """
-    def __init__(self,
-                 utterances,
-                 schema,
-                 snippets,
-                 anon_tok_to_ent,
-                 identifier,
-                 params):
-        self.utterances = utterances
+    def __init__(self, turns, schema, identifier):
+        self.turns = turns
         self.schema = schema
-        self.snippets = snippets
-        self.anon_tok_to_ent = anon_tok_to_ent
         self.identifier = identifier
 
-        # Ensure that each utterance's input and output sequences, when remapped
-        # without anonymization or snippets, are the same as the original
-        # version.
-        for i, utterance in enumerate(self.utterances):
-            deanon_input = self.deanonymize(utterance.input_seq_to_use,
-                                            ANON_INPUT_KEY)
-            assert deanon_input == utterance.original_input_seq, "Anonymized sequence [" \
-                + " ".join(utterance.input_seq_to_use) + "] is not the same as [" \
-                + " ".join(utterance.original_input_seq) + "] when deanonymized (is [" \
-                + " ".join(deanon_input) + "] instead)"
-            desnippet_gold = self.expand_snippets(utterance.gold_query_to_use)
-            deanon_gold = self.deanonymize(desnippet_gold, OUTPUT_KEY)
-            assert deanon_gold == utterance.original_gold_query, \
-                "Anonymized and/or snippet'd query " \
-                + " ".join(utterance.gold_query_to_use) + " is not the same as " \
-                + " ".join(utterance.original_gold_query)
-
     def __str__(self):
-        string = "Utterances:\n"
-        for utterance in self.utterances:
-            string += str(utterance) + "\n"
-        string += "Anonymization dictionary:\n"
-        for ent_tok, deanon in self.anon_tok_to_ent.items():
-            string += ent_tok + "\t" + str(deanon) + "\n"
-
-        return string
+        return '\n'.join(['Turns:'] + [str(turn) for turn in self.turns])
 
     def __len__(self):
-        return len(self.utterances)
-
-    def deanonymize(self, sequence, key):
-        """ Deanonymizes a predicted query or an input utterance.
-
-        Inputs:
-            sequence (list of str): The sequence to deanonymize.
-            key (str): The key in the anonymization table, e.g. NL or SQL.
-        """
-        return anon.deanonymize(sequence, self.anon_tok_to_ent, key)
-
-    def expand_snippets(self, sequence):
-        """ Expands snippets for a sequence.
-
-        Inputs:
-            sequence (list of str): A SQL query.
-
-        """
-        return expand_snippets(sequence, self.snippets)
+        return len(self.turns)
 
     def input_seqs(self):
-        in_seqs = []
-        for utterance in self.utterances:
-            in_seqs.append(utterance.input_seq_to_use)
-        return in_seqs
+        return [turn.input_seq for turn in self.turns]
 
     def output_seqs(self):
-        out_seqs = []
-        for utterance in self.utterances:
-            out_seqs.append(utterance.gold_query_to_use)
-        return out_seqs
+        return [turn.output_seq for turn in self.turns]
 
-def load_function(parameters,
-                  nl_to_sql_dict,
-                  anonymizer,
-                  database_schema=None):
+
+def load_function(data_dir, db_schema=None):
     def fn(interaction_example):
         keep = False
 
-        raw_utterances = interaction_example["interaction"]
+        raw_turns = interaction_example['interaction']
 
-        if "database_id" in interaction_example:
-            database_id = interaction_example["database_id"]
-            interaction_id = interaction_example["interaction_id"]
-            identifier = database_id + '/' + str(interaction_id)
+        if 'database_id' in interaction_example:
+            database_id = interaction_example['database_id']
+            interaction_id = interaction_example['interaction_id']
+            identifier = str(database_id) + '/' + str(interaction_id)
         else:
-            identifier = interaction_example["id"]
+            identifier = interaction_example['id']
 
         schema = None
-        if database_schema:
-            if 'removefrom' not in parameters.data_directory:
-                schema = Schema(database_schema[database_id], simple=True)
+        if db_schema:
+            if 'removefrom' not in data_dir:
+                schema = Schema(db_schema[database_id], simple=True)
             else:
-                schema = Schema(database_schema[database_id])
+                schema = Schema(db_schema[database_id])
 
-        snippet_bank = []
+        turn_examples = []
 
-        utterance_examples = []
-
-        anon_tok_to_ent = {}
-
-        for utterance in raw_utterances:
-            available_snippets = [
-                snippet for snippet in snippet_bank if snippet.index <= 1]
-
-            proc_utterance = Turn(
-                utterance,
-                available_snippets,
-                nl_to_sql_dict,
-                parameters,
-                anon_tok_to_ent,
-                anonymizer)
-            keep_utterance = proc_utterance.keep
-
-            if schema:
-                assert keep_utterance
-
-            if keep_utterance:
+        for turn in raw_turns:
+            proc_turn = Turn(turn)
+            keep_turns = proc_turn.keep
+            assert not schema or keep_turns
+            if keep_turns:
                 keep = True
-                utterance_examples.append(proc_utterance)
+                turn_examples.append(proc_turn)
 
-                # Update the snippet bank, and age each snippet in it.
-                if parameters.use_snippets:
-                    snippets = sql_util.get_subtrees_simple(
-                        proc_utterance.anonymized_gold_query,
-                        proc_utterance.available_snippets)
-
-                    for snippet in snippets:
-                        snippet.assign_id(len(snippet_bank))
-                        snippet_bank.append(snippet)
-
-                for snippet in snippet_bank:
-                    snippet.increase_age()
-
-        interaction = Interaction(utterance_examples,
-                                  schema,
-                                  snippet_bank,
-                                  anon_tok_to_ent,
-                                  identifier,
-                                  parameters)
+        interaction = Interaction(
+            turn_examples,
+            schema,
+            identifier)
 
         return interaction, keep
 

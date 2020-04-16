@@ -6,24 +6,13 @@ import torch.nn.functional as F
 import torch_utils
 import utils_bert
 
-from data_utils import snippet as snippet_handler
-from data_utils import sql_util
-from data_utils import vocabulary as vocab
-from data_utils import tokenizer
-from data_utils import batch
-from data_utils.vocabulary import EOS_TOK, UNK_TOK
-from data_utils.text import ANON_INPUT_KEY
+from data_utils.vocab import EOS_TOK, UNK_TOK
 
 from modules.embedder import load_all_embs, Embedder
-from modules.encoder import Encoder
 from modules.text_schema_encoder import TextSchemaEncoder
 from modules.interaction_encoder import InteractionEncoder
-from modules.decoder import QueryDecoder
-from modules.decoder import UtteranceDecoder
-
 from modules.decoder import SequencePredictorWithSchema
 from modules.token_predictor import construct_token_predictor
-# from model.model import Seq2Seq, encode_snippets_with_states, get_token_indices
 
 
 class DualSQL(nn.Module):
@@ -34,8 +23,7 @@ class DualSQL(nn.Module):
             params,
             input_vocab,
             output_vocab,
-            output_vocab_schema,
-            anonymizer):
+            output_vocab_schema):
 
         if params.use_bert:
             self.model_bert, self.tokenizer, self.bert_config = utils_bert.get_bert(params)
@@ -46,10 +34,9 @@ class DualSQL(nn.Module):
             # Create the output embeddings
             self.output_embedder = Embedder(
                 params.output_emb_size,
-                name="output-embedding",
+                name="output-embedding", # TODO: delete names
                 initializer=output_vocab_emb,
                 vocabulary=output_vocab,
-                anonymizer=anonymizer,
                 freeze=False)
             self.column_name_token_embedder = None
         else:
@@ -64,7 +51,6 @@ class DualSQL(nn.Module):
                 name="input-embedding",
                 initializer=input_vocab_emb,
                 vocabulary=input_vocab,
-                anonymizer=anonymizer,
                 freeze=params.freeze)
 
             # Create the output embeddings
@@ -73,7 +59,6 @@ class DualSQL(nn.Module):
                 name="output-embedding",
                 initializer=output_vocab_emb,
                 vocabulary=output_vocab,
-                anonymizer=anonymizer,
                 freeze=False)
 
             self.column_name_token_embedder = Embedder(
@@ -81,14 +66,12 @@ class DualSQL(nn.Module):
                 name="schema-embedding",
                 initializer=output_schema_vocab_emb,
                 vocabulary=output_vocab_schema,
-                anonymizer=anonymizer,
                 freeze=params.freeze)
-
+        
         # Create the encoder
         encoder_input_size = self.bert_config.hidden_size if params.use_bert else params.input_emb_size
         encoder_output_size = params.encoder_state_size
         encoder_input_size += params.encoder_state_size / 2 # discourse-level lstm
-
         self.utterance_encoder = Encoder(params.encoder_num_layers, encoder_input_size, encoder_output_size)
 
         # Positional embedder for utterances
@@ -113,22 +96,15 @@ class DualSQL(nn.Module):
             params.output_emb_size,
             params.encoder_state_size)
 
-
-        self.text_schema_encoder = TextSchemaEncoder(
-            params)
+        self.text_schema_encoder = TextSchemaEncoder(params)
         self.interaction_encoder = InteractionEncoder(params)
-        if self.utterance2query:
-            self.decoder = QueryDecoder(params)
-        else:
-            self.decoder = UtteranceDecoder(params)
+        self.decoder = Decoder(params)
 
         self.token_predictor = construct_token_predictor(
             params,
             output_vocab,
             self.text_attention_key_size,
-            self.schema_attention_key_size,
-            self.final_snippet_size,
-            anonymizer)
+            self.schema_attention_key_size)
 
         # Use schema_attention in decoder
         decoder_input_size = params.output_emb_size + self.text_attention_key_size + self.schema_attention_key_size + params.encoder_state_size
@@ -143,7 +119,6 @@ class DualSQL(nn.Module):
             input_hidden_states,
             schema_states,
             max_gen_length,
-            snippets=None,
             input_sequence=None,
             previous_queries=None,
             previous_query_states=None,
@@ -164,7 +139,6 @@ class DualSQL(nn.Module):
             previous_queries=previous_queries,
             previous_query_states=previous_query_states,
             input_schema=input_schema,
-            snippets=snippets,
             dropout_amount=self.dropout)
         predicted_sequence = decoder_results.sequence
         fed_sequence = predicted_sequence
@@ -206,7 +180,6 @@ class DualSQL(nn.Module):
             previous_queries=previous_queries,
             previous_query_states=previous_query_states,
             input_schema=input_schema,
-            snippets=snippets,
             dropout_amount=self.dropout)
 
         all_scores = []
@@ -305,8 +278,6 @@ class DualSQL(nn.Module):
         Args:
             interaction (InteractionItem): An interaction to train on.
             max_gen_length (int): Maximum generation length.
-            snippet_align_prob (float): The probability that a snippet will
-                be used in constructing the gold sequence.
 
         Returns:
             loss (float)
@@ -343,18 +314,10 @@ class DualSQL(nn.Module):
             
         for text in gold_texts:
             input_sequence = text.input_sequence()
-            available_snippets = text.snippets()
             previous_query = text.previous_query()
             
             # Get the gold query: reconstruct if the alignment probability is less than one
-            if snippet_align_prob < 1.:
-                gold_query = sql_util.add_snippets_to_query(
-                    available_snippets,
-                    text.contained_entities(),
-                    text.anonymized_gold_query(),
-                    prob_align=snippet_align_prob) + [vocab.EOS_TOK]
-            else:
-                gold_query = text.gold_query()
+            gold_query = text.gold_query()
 
             # Encode the text, and update the discourse-level states
             if not self.params.use_bert:
@@ -393,7 +356,6 @@ class DualSQL(nn.Module):
                     schema_states,
                     max_gen_length,
                     gold_query=gold_query,
-                    snippets=None,
                     input_sequence=flat_sequence,
                     previous_queries=previous_queries,
                     previous_query_states=previous_query_states,
@@ -461,7 +423,6 @@ class DualSQL(nn.Module):
         while not interaction.done():
             text = interaction.next_text()
 
-            available_snippets = text.snippets()
             previous_query = text.previous_query()
 
             input_sequence = text.input_sequence()
@@ -495,10 +456,6 @@ class DualSQL(nn.Module):
                 for utt in input_sequences[-num_texts_to_keep:]:
                     flat_sequence.extend(utt)
 
-            snippets = None
-            if self.params.use_snippets:
-                snippets = self._encode_snippets(previous_query, available_snippets, input_schema)
-
             if self.params.use_previous_query and len(previous_query) > 0:
                 previous_queries, previous_query_states = self.get_previous_queries(previous_queries, previous_query_states, previous_query, input_schema)
 
@@ -509,26 +466,10 @@ class DualSQL(nn.Module):
                                         input_sequence=flat_sequence,
                                         previous_queries=previous_queries,
                                         previous_query_states=previous_query_states,
-                                        input_schema=input_schema,
-                                        snippets=snippets)
+                                        input_schema=input_schema)
 
             predicted_sequence = results[0]
             predictions.append(results)
-
-            # Update things necessary for using predicted queries
-            anonymized_sequence = text.remove_snippets(predicted_sequence)
-            if EOS_TOK in anonymized_sequence:
-                anonymized_sequence = anonymized_sequence[:-1] # Remove _EOS
-            else:
-                anonymized_sequence = ['select', '*', 'from', 't1']
-
-            if not syntax_restrict:
-                text.set_predicted_query(interaction.remove_snippets(predicted_sequence))
-                if input_schema:
-                    interaction.add_text(text, anonymized_sequence, previous_snippets=text.snippets(), simple=True)
-            else:
-                text.set_predicted_query(text.previous_query())
-                interaction.add_text(text, text.previous_query(), previous_snippets=text.snippets())
 
         return predictions
 
@@ -569,7 +510,6 @@ class DualSQL(nn.Module):
         for text in interaction.gold_texts():
             input_sequence = text.input_sequence()
 
-            available_snippets = text.snippets()
             previous_query = text.previous_query()
 
             # Encode the text, and update the discourse-level states
@@ -603,27 +543,20 @@ class DualSQL(nn.Module):
                 for utt in input_sequences[-num_texts_to_keep:]:
                     flat_sequence.extend(utt)
 
-            snippets = None
-            if self.params.use_snippets:
-                if self.params.previous_decoder_snippet_encoding:
-                    snippets = encode_snippets_with_states(available_snippets, decoder_states)
-                else:
-                    snippets = self._encode_snippets(previous_query, available_snippets, input_schema)
-
             if self.params.use_previous_query and len(previous_query) > 0:
                 previous_queries, previous_query_states = self.get_previous_queries(previous_queries, previous_query_states, previous_query, input_schema)
 
-            prediction = self.predict_turn(final_text_state,
-                                           text_states,
-                                           schema_states,
-                                           max_gen_length,
-                                           gold_query=text.gold_query(),
-                                           snippets=snippets,
-                                           input_sequence=flat_sequence,
-                                           previous_queries=previous_queries,
-                                           previous_query_states=previous_query_states,
-                                           input_schema=input_schema,
-                                           feed_gold_tokens=feed_gold_query)
+            prediction = self.predict_turn(
+                final_text_state,
+                text_states,
+                schema_states,
+                max_gen_length,
+                gold_query=text.gold_query(),
+                input_sequence=flat_sequence,
+                previous_queries=previous_queries,
+                previous_query_states=previous_query_states,
+                input_schema=input_schema,
+                feed_gold_tokens=feed_gold_query)
 
             decoder_states = prediction[3]
             predictions.append(prediction)

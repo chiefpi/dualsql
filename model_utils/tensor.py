@@ -1,11 +1,11 @@
 import torch
 
 def lens2mask(lens):
-    """Calculates masks for lengths
+    """Calculates masks for lengths.
     Args:
         lens (list of int): bsize
     Returns:
-        Tensor: masks of length, bsize x max_len
+        Tensor: masks of lengths, bsize x 1 x max_len
     """
     bsize = lens.numel()
     max_len = lens.max()
@@ -19,8 +19,7 @@ def lens2mask(lens):
     return masks
 
 def tile(x, count, dim=0):
-    """
-    Tiles x on dimension dim count times.
+    """ Tiles x on dimension dim count times.
     E.g. [1, 2, 3], count=2 ==> [1, 1, 2, 2, 3, 3]
         [[1, 2], [3, 4]], count=3, dim=1 ==> [[1, 1, 1, 2, 2, 2], [3, 3, 3, 4, 4, 4]]
     Different from torch.repeat

@@ -1,4 +1,5 @@
-"""Contains various utility functions for Dynet models."""
+"""Contains various utility functions for Torch models."""
+# TODO: delete this dy de-facto util
 
 import torch
 import torch.nn as nn
@@ -180,25 +181,6 @@ def encode_sequence(sequence, rnns, embedder, dropout_amount=0.):
         outputs.append(output)
 
     return (cell_states, hidden_states), outputs
-
-def create_multilayer_lstm_params(num_layers, in_size, state_size, name=""):
-    """ Adds a multilayer LSTM to the model parameters.
-
-    Inputs:
-        num_layers (int): Number of layers to create.
-        in_size (int): The input size to the first layer.
-        state_size (int): The size of the states.
-        model (dy.ParameterCollection): The parameter collection for the model.
-        name (str, optional): The name of the multilayer LSTM.
-    """
-    lstm_layers = []
-    for i in range(num_layers):
-        layer_name = name + "-" + str(i)
-        print("LSTM " + layer_name + ": " + str(in_size) + " x " + str(state_size) + "; default Dynet initialization of hidden weights")
-        lstm_layer = torch.nn.LSTMCell(input_size=int(in_size), hidden_size=int(state_size), bias=True)
-        lstm_layers.append(lstm_layer)
-        in_size = state_size
-    return torch.nn.ModuleList(lstm_layers)
 
 def add_params(size, name=""):
     """ Adds parameters to the model.

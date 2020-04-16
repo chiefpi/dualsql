@@ -1,8 +1,7 @@
 import torch
 
-from utils.constants import *
-from utils.example import Example
-from utils.tensors import lens2mask
+from data_utils.vocabulary import UNK_TOK, EOS_TOK
+from model_utils.tensor import lens2mask
 
 
 class RewardModel():
@@ -26,9 +25,9 @@ class RewardModel():
         else:
             raise ValueError('Unknown reward choice')
 
-    def sp_validity_reward(self, lf_list):
+    def sp_validity_reward(self, queries):
         # calculate query language model length normalized log probability
-        input_idxs = [[self.vocab.lf2id[BOS]] + [self.vocab.lf2id[word] if word in self.vocab.lf2id else self.vocab.lf2id[UNK] for word in sent] + [self.vocab.word2id[EOS]] for sent in lf_list]
+        input_idxs = [[self.vocab.lf2id[BOS]] + [self.vocab.lf2id[word] if word in self.vocab.lf2id else self.vocab.lf2id[UNK] for word in sent] + [self.vocab.word2id[EOS]] for sent in queries]
         lens = [len(each) for each in input_idxs]
         max_len = max(lens)
         input_idxs = [sent + [self.vocab.lf2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
@@ -36,12 +35,13 @@ class RewardModel():
         lens = torch.tensor(lens, dtype=torch.long, device=self.qg_device)
         self.query_lm.eval()
         with torch.no_grad():
-            logprob = self.query_lm.sentence_log_prob(input_tensor, lens).cpu()
+            log_prob = self.query_lm.sentence_log_prob(input_tensor, lens).cpu()
         # grammar check
+        # TODO: find sql validator
         domain = Example.domain
-        ans = domain.is_valid(domain.obtain_denotations(domain.normalize(lf_list)))
+        ans = domain.is_valid(domain.obtain_denotations(domain.normalize(queries)))
         grammar = torch.tensor(ans, dtype=torch.float, requires_grad=False)
-        val_reward = 0.5 * logprob + 0.5 * grammar
+        val_reward = 0.5 * log_prob + 0.5 * grammar
         return val_reward
 
     def qg_validity_reward(self, utterances):
@@ -54,20 +54,20 @@ class RewardModel():
         lens = torch.tensor(lens, dtype=torch.long, device=self.sp_device)
         self.utter_lm.eval()
         with torch.no_grad():
-            logprob = self.utter_lm.sentence_log_prob(input_tensor, lens).cpu()
-        return logprob
+            log_prob = self.utter_lm.sentence_log_prob(input_tensor, lens).cpu()
+        return log_prob
 
-    def reconstruction_reward(self, logscores, references, lens):
-        """
+    def reconstruction_reward(self, log_scores, references, lens):
+        """Calculates log-likelihood.
         Args:
-            logscores: bsize x max_out_len x vocab_size[ + MAX_OOV_NUM]
+            log_scores: bsize x max_out_len x vocab_size[ + MAX_OOV_NUM]
             references: bsize x max_out_len
             lens: len for each sample
         Returns:
             bsize x 
         """
         mask = lens2mask(lens)
-        pick_score = torch.gather(logscores, dim=-1, index=references.unsqueeze(dim=-1)).squeeze(dim=-1)
+        pick_score = torch.gather(log_scores, dim=-1, index=references.unsqueeze(dim=-1)).squeeze(dim=-1)
         masked_score = mask.float() * pick_score
         reward = masked_score.sum(dim=1)
         return reward

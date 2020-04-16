@@ -7,7 +7,7 @@ import pickle
 UNK_TOK = "_UNK" # Replaces out-of-vocabulary words.
 EOS_TOK = "_EOS" # Appended to the end of a sequence to indicate its end.
 DEL_TOK = ";"
-
+# PAD_TOK = "_PAD"
 
 class Vocabulary:
     """Vocabulary class: stores information about words in a corpus.
@@ -42,10 +42,11 @@ class Vocabulary:
         # Create sorted list of tokens, by their counts. Reverse so it is in order of
         # most frequent to least frequent.
         sorted_type_counts = sorted(sorted(type_counts.items()),
-                                    key=operator.itemgetter(1))[::-1]
+            key=operator.itemgetter(1))[::-1]
 
         sorted_types = [typecount[0]
-                        for typecount in sorted_type_counts if typecount[1] >= self.min_occur]
+            for typecount in sorted_type_counts
+            if typecount[1] >= self.min_occur]
 
         # Append the necessary functional tokens.
         sorted_types = self.functional_types + sorted_types
@@ -58,13 +59,14 @@ class Vocabulary:
 
         return vocab
 
-    def __init__(self,
-                 sequences,
-                 filename,
-                 functional_types=None,
-                 max_size=-1,
-                 min_occur=0,
-                 ignore_fn=lambda x: False):
+    def __init__(
+            self,
+            sequences,
+            filename,
+            functional_types=None,
+            max_size=-1,
+            min_occur=0,
+            ignore_fn=lambda x: False):
         self.functional_types = functional_types
         self.max_size = max_size
         self.min_occur = min_occur

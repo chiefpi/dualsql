@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=0 python3 scripts/train_lm.py \
+CUDA_VISIBLE_DEVICES=0 python3 scripts/run_lm.py \
     --dataset="sparc" \
     --input_key="utterance" \
     --state_positional_embeddings=1 \
@@ -18,6 +18,6 @@ CUDA_VISIBLE_DEVICES=0 python3 scripts/train_lm.py \
     --logdir=$LOGDIR \
     --evaluate=1 \
     --evaluate_split="valid"
-CUDA_VISIBLE_DEVICES=0 python3 scripts/train_qg.py
-CUDA_VISIBLE_DEVICES=0 python3 scripts/train_sp.py
-CUDA_VISIBLE_DEVICES=0 python3 scripts/train_dual.py
+CUDA_VISIBLE_DEVICES=0 python3 scripts/run_qg.py
+CUDA_VISIBLE_DEVICES=0 python3 scripts/run_sp.py
+CUDA_VISIBLE_DEVICES=0 python3 scripts/run_dual.py

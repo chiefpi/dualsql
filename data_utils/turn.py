@@ -1,120 +1,79 @@
-"""Contains the Turn class."""
+"""Contains the Turn class and token functions."""
 
-from data_utils import sql_util
-from data_utils import tokenizer
+import nltk
+import sqlparse
 
-ANON_INPUT_KEY = "cleaned_nl"
-OUTPUT_KEY = "sql"
+# keys of json
+INPUT_KEY = 'utterance'
+OUTPUT_KEY = 'sql'
+
+
+def nl_tokenize(string):
+    """Tokenizes a natural language string into tokens.
+    Assumes data is space-separated (this is true of ZC07 data in ATIS2/3).
+
+    Args:
+       string: the string to tokenize.
+
+    Returns:
+        a list of tokens.
+    """
+    return nltk.word_tokenize(string)
+
+def sql_tokenize(string):
+    """Tokenizes a SQL statement into tokens.
+
+    Args:
+       string: string to tokenize.
+
+    Returns:
+       list of str: table.column is treated as a single token.
+    """
+    tokens = []
+    statements = sqlparse.parse(string)
+
+    # SQLparse gives you a list of statements.
+    for statement in statements:
+        # Flatten the tokens in each statement and add to the tokens list.
+        flat_tokens = sqlparse.sql.TokenList(statement.tokens).flatten()
+        for token in flat_tokens:
+            strip_token = str(token).strip()
+            if len(strip_token) > 0:
+                tokens.append(strip_token)
+
+    merged_tokens = []
+    keep = True
+    for i, token in enumerate(tokens):
+        if token == ".":
+            newtoken = merged_tokens[-1] + "." + tokens[i + 1]
+            merged_tokens = merged_tokens[:-1] + [newtoken]
+            keep = False
+        elif keep:
+            merged_tokens.append(token)
+        else:
+            keep = True
+
+    return merged_tokens
+
 
 class Turn:
-    """Interaction Turn class."""
-    def process_input_seq(
-            self, 
-            anonymize,
-            anonymizer,
-            anon_tok_to_ent):
-        assert not anon_tok_to_ent or anonymize
-        assert not anonymize or anonymizer
+    """Contains a turn in an interaction.
+    
+    Attributes:
+        input_seq (list of str): nl tokens.
+        output_seq (list of str): sql tokens.
+        keep (bool): if not empty.
+    """
 
-        if anonymize:
-            assert anonymizer
-
-            self.input_seq_to_use = anonymizer.anonymize(
-                self.original_input_seq, anon_tok_to_ent, ANON_INPUT_KEY, add_new_anon_toks=True)
-        else:
-            self.input_seq_to_use = self.original_input_seq
-
-    def process_gold_seq(
-            self,
-            output_sequences,
-            nl_to_sql_dict,
-            available_snippets,
-            anonymize,
-            anonymizer,
-            anon_tok_to_ent):
-        # Get entities in the input sequence:
-        #    anonymized entity types
-        #    othe recognized entities (this includes "flight")
-        entities_in_input = [
-            [tok] for tok in self.input_seq_to_use if tok in anon_tok_to_ent]
-        entities_in_input.extend(
-            nl_to_sql_dict.get_sql_entities(
-                self.input_seq_to_use))
-
-        # Get the shortest gold query (this is what we use to train)
-        shortest_gold_and_results = min(output_sequences,
-                                        key=lambda x: len(x[0]))
-
-        # Tokenize and anonymize it if necessary.
-        self.original_gold_query = shortest_gold_and_results[0]
-        self.gold_sql_results = shortest_gold_and_results[1]
-
-        self.contained_entities = entities_in_input
-
-        # Keep track of all gold queries and the resulting tables so that we can
-        # give credit if it predicts a different correct sequence.
-        self.all_gold_queries = output_sequences
-
-        self.anonymized_gold_query = self.original_gold_query
-        if anonymize:
-            self.anonymized_gold_query = anonymizer.anonymize(
-                self.original_gold_query, anon_tok_to_ent, OUTPUT_KEY, add_new_anon_toks=False)
-
-        # Add snippets to it.
-        self.gold_query_to_use = sql_util.add_snippets_to_query(
-            available_snippets, entities_in_input, self.anonymized_gold_query)
-
-    def __init__(
-            self,
-            example,
-            available_snippets,
-            nl_to_sql_dict,
-            params,
-            anon_tok_to_ent={},
-            anonymizer=None):
-        # Get output and input sequences from the dictionary representation.
-        output_sequences = example[OUTPUT_KEY]
-        self.original_input_seq = tokenizer.nl_tokenize(example[params.input_key])
-        self.available_snippets = available_snippets
-        self.keep = False
-
-        # pruned_output_sequences = []
-        # for sequence in output_sequences:
-        #     if len(sequence[0]) > 3:
-        #         pruned_output_sequences.append(sequence)
-
-        # output_sequences = pruned_output_sequences
-        if len(output_sequences) > 0 and len(self.original_input_seq) > 0:
-            # Only keep this example if there is at least one output sequence.
-            self.keep = True
-        if len(output_sequences) == 0 or len(self.original_input_seq) == 0:
-            return
-
-        # Process the input sequence
-        self.process_input_seq(
-            params.anonymize,
-            anonymizer,
-            anon_tok_to_ent)
-
-        # Process the gold sequence
-        self.process_gold_seq(
-            output_sequences,
-            nl_to_sql_dict,
-            self.available_snippets,
-            params.anonymize,
-            anonymizer,
-            anon_tok_to_ent)
+    def __init__(self, example, params):
+        self.input_seq = nl_tokenize(example[INPUT_KEY])
+        self.output_seq = example[OUTPUT_KEY]
+        self.keep = self.output_seq and self.input_seq
 
     def __str__(self):
-        string = "Original input: " + " ".join(self.original_input_seq) + "\n"
-        string += "Modified input: " + " ".join(self.input_seq_to_use) + "\n"
-        string += "Original output: " + " ".join(self.original_gold_query) + "\n"
-        string += "Modified output: " + " ".join(self.gold_query_to_use) + "\n"
-        string += "Snippets:\n"
-        for snippet in self.available_snippets:
-            string += str(snippet) + "\n"
-        return string
+        return 'Input: ' + ' '.join(self.input_seq) + '\n' + \
+            'Output: ' + ' '.join(self.output_seq) + '\n'
 
     def length_valid(self, input_limit, output_limit):
-        return (len(self.input_seq_to_use) < input_limit \
-            and len(self.gold_query_to_use) < output_limit)
+        return len(self.input_seq) < input_limit \
+            and len(self.output_seq) < output_limit
