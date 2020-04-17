@@ -65,7 +65,7 @@ class Turn:
         keep (bool): if not empty.
     """
 
-    def __init__(self, example, params):
+    def __init__(self, example):
         self.input_seq = nl_tokenize(example[INPUT_KEY])
         self.output_seq = example[OUTPUT_KEY]
         self.keep = self.output_seq and self.input_seq

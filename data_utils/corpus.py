@@ -5,21 +5,20 @@ import random
 import json
 import math
 
-from data_utils.batch import TurnItem, TurnBatch, InteractionItem, InteractionBatch
-from data_utils.split import DatasetSplit
-from data_utils.interaction import load_function
+from data_utils.batch import TurnBatch, InteractionItem
+from data_utils.split import DatasetSplit, load_function
 from data_utils.data_vocab import DataVocab
 
 
-class Corpus():
+class Corpus:
     """Contains the Text-to-SQL data.
     
     Attributes:
         train_data (DatasetSplit)
         valid_data (DatasetSplit)
-        input_vocab (DataVocab)
-        output_vocab (DataVocab)
-        output_vocab_shema (DataVocab)
+        input_vocab (DataVocab): utterance vocabulary
+        output_vocab (DataVocab): query vocabulary
+        output_vocab_shema (DataVocab): schema vocabulary
     """
 
     def __init__(self, params):
@@ -27,20 +26,21 @@ class Corpus():
             os.mkdir(params.data_dir)
 
         database_schema = None
+        remove_from = 'removefrom' in params.data_dir
         if params.database_schema_filename:
-            if 'removefrom' not in params.data_dir:
-                database_schema, column_names_surface_form, column_names_embedder_input = \
-                    self.read_database_schema_simple(params.database_schema_filename)
-            else:
+            if remove_from:
                 database_schema, column_names_surface_form, column_names_embedder_input = \
                     self.read_database_schema(params.database_schema_filename)
+            else:
+                database_schema, column_names_surface_form, column_names_embedder_input = \
+                    self.read_database_schema_simple(params.database_schema_filename)
 
         # interaction load function
-        int_load_function = load_function(params.data_dir, database_schema)
+        int_load_function = load_function(database_schema, remove_from)
 
-        def collapse_list(the_list):
+        def collapse_list(lst):
             """Collapses a list of list into a single list."""
-            return [s for i in the_list for s in i]
+            return [j for i in lst for j in i]
 
         self.train_data = DatasetSplit(
             os.path.join(params.data_dir, params.processed_train_filename),
@@ -170,14 +170,15 @@ class Corpus():
             dataset,
             max_input_length=math.inf,
             max_output_length=math.inf):
-        """Returns all turns in a dataset."""
+        """Gets all turns in a dataset.
+        
+        Returns:
+            list of Turn
+        """
 
-        items = []
-        for interaction in dataset.examples:
-            for i, turn in enumerate(interaction.turns):
-                if turn.length_valid(max_input_length, max_output_length):
-                    items.append(TurnItem(interaction, i))
-        return items
+        return [turn for interaction in dataset.examples
+            for turn in interaction.turns
+            if turn.length_valid(max_input_length, max_output_length)]
 
     def get_all_interactions(
             self,
@@ -194,20 +195,20 @@ class Corpus():
             max_input_length (int): Maximum input sequence length to keep.
             max_output_length (int): Maximum output sequence length to keep.
             sorted_by_length (bool): Whether to sort the examples by interaction length.
-        """
-        ints = [
-            InteractionItem(
-                interaction,
-                max_input_length,
-                max_output_length,
-                max_interaction_length) for interaction in dataset.examples]
-        if sorted_by_length:
-            return sorted(ints, key=len)[::-1]
-        else:
-            return ints
 
-    # This defines a standard way of training: each example is an turn, and
-    # the batch can contain unrelated turns.
+        Returns:
+            list of Interaction
+        """
+        interactions = [interaction for interaction in dataset.examples
+            if len(interaction) <= max_interaction_length]
+        for interaction in interactions:
+            interaction.set_valid_length(max_inp.
+            _length, max_output_length)
+        if sorted_by_length:
+            return sorted(interactions, key=len, reverse=True) # desc
+        else:
+            return interactions
+
     def get_turn_batches(
             self,
             batch_size,
@@ -222,32 +223,18 @@ class Corpus():
             max_output_length (int): Maximum length of output to use.
             randomize (bool): Whether to randomize the ordering.
         """
-        # First, get all interactions and the positions of the turns that are
-        # possible in them.
-        items = self.get_all_turns(
+        turns = self.get_all_turns(
             self.train_data,
             max_input_length,
             max_output_length)
         if randomize:
-            random.shuffle(items)
+            random.shuffle(turns)
 
-        batches = []
+        return [TurnBatch(turns[i:i+batch_size])
+            for i in range(0, len(turns), batch_size)]
 
-        current_batch_items = []
-        for item in items:
-            if len(current_batch_items) >= batch_size:
-                batches.append(TurnBatch(current_batch_items))
-                current_batch_items = []
-            current_batch_items.append(item)
-        batches.append(TurnBatch(current_batch_items))
-
-        assert sum([len(batch) for batch in batches]) == len(items)
-
-        return batches
-
-    def get_interaction_batches(
+    def get_interaction_items(
             self,
-            batch_size,
             max_interaction_length=math.inf,
             max_input_length=math.inf,
             max_output_length=math.inf,
@@ -261,28 +248,16 @@ class Corpus():
             max_output_length (int): Maximum length of output to keep.
             randomize (bool): Whether to randomize the ordering.
         """
-        items = self.get_all_interactions(
+        interactions = self.get_all_interactions(
             self.train_data,
             max_interaction_length,
             max_input_length,
             max_output_length,
             sorted_by_length=not randomize)
         if randomize:
-            random.shuffle(items)
+            random.shuffle(interactions)
 
-        batches = []
-        current_batch_items = []
-        for item in items:
-            if len(current_batch_items) >= batch_size:
-                batches.append(
-                    InteractionBatch(current_batch_items))
-                current_batch_items = []
-            current_batch_items.append(item)
-        batches.append(InteractionBatch(current_batch_items))
-
-        assert sum([len(batch) for batch in batches]) == len(items)
-
-        return batches
+        return [InteractionItem(i) for i in interactions]
 
     def get_random_turns(
             self,
@@ -301,6 +276,7 @@ class Corpus():
             max_input_length,
             max_output_length)
         random.shuffle(items)
+
         return items[:num_samples]
 
     def get_random_interactions(
@@ -322,6 +298,7 @@ class Corpus():
             max_input_length,
             max_output_length)
         random.shuffle(items)
+
         return items[:num_samples]
 
 

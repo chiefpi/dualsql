@@ -30,7 +30,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def get_params():
     parser = argparse.ArgumentParser()
     # Data
-    parser.add_argument('--data_directory', type=str,
+    parser.add_argument('--data_dir', type=str,
         default='data/sparc')
     parser.add_argument('--raw_train_filename', type=str,
         default='data/sparc_data_removefrom/train.pkl')
@@ -94,9 +94,7 @@ def train(model, data, params):
     num_train = corpus.num_turns(data.train_data)
     log.put('Total number of training turns: {:d}' % num_train)
 
-    train_batches = data.get_turn_batches(
-        params.batch_size,
-        max_input_length=)
+    train_batches = data.get_turn_batches(params.batch_size)
     # evaluation samples
     train_samples = data.get_random_turns(params.train_evaluation_size)
     valid_examples = data.get_all_turns(data.valid_data)
@@ -181,13 +179,9 @@ def evaluate(model, data, params, split):
 
 
 def main():
-    """Main function that trains and/or evaluates a language model."""
     params = get_params()
 
-    # Prepare the corpus into the proper form
     data = Corpus(params)
-
-    # Build the model
     model = LanguageModel(
         vocab_size=len(data.input_vocabulary),
         emb_file=params.emb_file,

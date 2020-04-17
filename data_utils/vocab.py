@@ -10,9 +10,9 @@ DEL_TOK = ";"
 # PAD_TOK = "_PAD"
 
 class Vocabulary:
-    """Vocabulary class: stores information about words in a corpus.
+    """Contains information about words in a corpus.
 
-    Members:
+    Attributes:
         functional_types (list of str): Functional vocabulary words, such as EOS.
         max_size (int): The maximum size of vocabulary to keep.
         min_occur (int): The minimum number of times a word should occur to keep it.

@@ -15,13 +15,15 @@ Download `nltk.punkt`.
 
 ## Preprocess
 
-Remove unnecessary attributes from json.
+Remove unwanted attributes from json, and modify column names in the format of `table_name.column_name`.
 
 ```bash
 python preprocess.py --dataset=sparc --remove_from
 ```
 
 ## Train
+
+Train dualsql/language models for utterance/query (4 in total).
 
 ```bash
 bash train.sh
@@ -33,10 +35,8 @@ Calculate the question match and the interaction match.
 
 ```bash
 # etype=match
-python3 postprocess_eval.py --dataset=sparc --split=dev --pred_file log/todo.json --remove_from
+python3 postprocess_eval.py --dataset=sparc --split=dev --pred_file log/pred.json --remove_from
 ```
-
-TODO: pred_file name
 
 ## Experiment Results
 

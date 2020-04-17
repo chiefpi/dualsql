@@ -106,7 +106,6 @@ class Embedder(nn.Module):
     def __init__(
             self,
             embedding_size,
-            name="",
             initializer=None,
             vocabulary=None,
             num_tokens=-1,
@@ -117,7 +116,7 @@ class Embedder(nn.Module):
         if vocabulary:
             assert num_tokens < 0, "Specified a vocabulary but also set number of tokens to " + \
                 str(num_tokens)
-            self.in_vocabulary = lambda token: token in vocabulary.tokens
+            self.in_vocab = lambda token: token in vocabulary.tokens
             self.vocab_token_lookup = lambda token: vocabulary.token_to_id(token)
             if use_unk:
                 self.unknown_token_id = vocabulary.token_to_id(vocabulary_handler.UNK_TOK)
@@ -130,15 +129,11 @@ class Embedder(nn.Module):
                 assert index < num_tokens, "Passed token ID " + \
                     str(index) + "; expecting something less than " + str(num_tokens)
                 return index < num_tokens
-            self.in_vocabulary = check_vocab
+            self.in_vocab = check_vocab
             self.vocab_token_lookup = lambda x: x
             self.unknown_token_id = num_tokens  # Deliberately throws an error here,
             # But should crash before this
             self.vocabulary_size = num_tokens
-
-        emb_name = name + "-tokens"
-        print("Creating token embedder called " + emb_name + " of size " + str(
-            self.vocabulary_size) + " x " + str(embedding_size))
 
         if initializer is not None:
             word_embeddings_tensor = torch.FloatTensor(initializer)
@@ -152,7 +147,7 @@ class Embedder(nn.Module):
     def forward(self, token):
         assert isinstance(token, int)
 
-        if self.in_vocabulary(token):
+        if self.in_vocab(token):
             index_list = torch.LongTensor([self.vocab_token_lookup(token)])
             if self.token_embedding_matrix.weight.is_cuda:
                 index_list = index_list.cuda()

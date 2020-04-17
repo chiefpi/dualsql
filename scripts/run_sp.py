@@ -42,9 +42,17 @@ def get_params():
 
     return args
 
+def train_step(model, interaction, params):
+    """Trains the model on a single interation."""
+    schema = interaction.schema
+    for index, turn in enumerate(interaction.turns):
+        input_seq = turn.input_seq
+        prev_queries = interaction.prev_queries(index)
+        gold_query = turn.output_seq
+
 
 def train(model, data, params):
-
+    
 
 def main():
 

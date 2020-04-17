@@ -17,7 +17,8 @@ class TextSchemaEncoder(nn.Module):
             encoder_num_layer,
             encoder_state_size,
             text_attention_key_size,
-            use_text_schema_attention=True):
+            use_text_schema_attention=True,
+            dropout=0):
         super().__init__()
 
         # create the schema encoder
@@ -25,6 +26,7 @@ class TextSchemaEncoder(nn.Module):
             schema_encoder_input_size,
             schema_encoder_state_size,
             schema_encoder_num_layer,
+            dropout=dropout,
             bidirectional=True)
 
         # self-attention
@@ -60,15 +62,18 @@ class TextSchemaEncoder(nn.Module):
             schema_attention_key_size,
             schema_attention_key_size,
             schema_encoder_num_layer,
+            dropout=dropout,
             bidirectional=True)
         self.text_encoder_2 = nn.LSTM(
             text_attention_key_size,
             text_attention_key_size,
             encoder_num_layer,
+            dropout=dropout,
             bidirectional=True)
 
     def forward(
             self,
+            schema,
             text_final_state,
             schema_states,
             input_hidden_states,
@@ -79,26 +84,44 @@ class TextSchemaEncoder(nn.Module):
             input_schema=None):
         """Generates the column head embedding and text token embedding."""
 
-        schema_attention = self.text2schema_attention(torch.stack(schema_states, dim=0), input_hidden_states).vector # input_value_size x len(schema)
-        text_attention = self.schema2text_attention(torch.stack(input_hidden_states, dim=0), schema_states).vector # schema_value_size x len(input)
+        if schema and not self.params.use_bert:
+            schema_states = self.encode_schema_bow_simple(input_schema)
+
+        schema_attention = self.text2schema_attention(
+            torch.stack(schema_states, dim=0),
+            input_hidden_states).vector # input_value_size x len(schema)
+        text_attention = self.schema2text_attention(
+            torch.stack(input_hidden_states, dim=0),
+            schema_states).vector # schema_value_size x len(input)
 
         if schema_attention.dim() == 1:
             schema_attention = schema_attention.unsqueeze(1)
         if text_attention.dim() == 1:
             text_attention = text_attention.unsqueeze(1)
 
-        new_schema_states = torch.cat([torch.stack(schema_states, dim=1), schema_attention], dim=0) # (input_value_size+schema_value_size) x len(schema)
-        schema_states = list(torch.split(new_schema_states, split_size_or_sections=1, dim=1))
+        # (input_value_size+schema_value_size) x len(schema)
+        new_schema_states = torch.cat([
+            torch.stack(schema_states, dim=1),
+            schema_attention], dim=0)
+        schema_states = list(torch.split(
+            new_schema_states,
+            split_size_or_sections=1,
+            dim=1))
         schema_states = [schema_state.squeeze() for schema_state in schema_states]
 
-        new_input_hidden_states = torch.cat([torch.stack(input_hidden_states, dim=1), text_attention], dim=0) # (input_value_size+schema_value_size) x len(input)
-        input_hidden_states = list(torch.split(new_input_hidden_states, split_size_or_sections=1, dim=1))
+        new_input_hidden_states = torch.cat([
+            torch.stack(input_hidden_states, dim=1),
+            text_attention], dim=0) # (input_value_size+schema_value_size) x len(input)
+        input_hidden_states = list(torch.split(
+            new_input_hidden_states,
+            split_size_or_sections=1,
+            dim=1))
         input_hidden_states = [input_hidden_state.squeeze() for input_hidden_state in input_hidden_states]
 
         # bi-lstm over schema_states and input_hidden_states
         # (embedder is an identity function)
-        final_schema_state, schema_states = self.schema_encoder_2(schema_states, lambda x: x, dropout_amount=self.dropout)
-        final_text_state, input_hidden_states = self.text_encoder_2(input_hidden_states, lambda x: x, dropout_amount=self.dropout)
+        final_schema_state, schema_states = self.schema_encoder_2(schema_states,
+        final_text_state, input_hidden_states = self.text_encoder_2(input_hidden_states,
 
         return final_schema_state, final_text_state
     

@@ -1,6 +1,51 @@
 import os
 import pickle
 
+from data_utils.schema import Schema
+from data_utils.turn import Turn
+from data_utils.interaction import Interaction
+
+
+def load_function(db_schema=None, remove_from=True):
+    def fn(interaction_example):
+        """Loads an example to Interaction.
+
+        Returns:
+            interaction (Interaction)
+            keep (bool): Keep if not empty.
+        """
+
+        raw_turns = interaction_example['interaction']
+
+        database_id = interaction_example['database_id']
+        interaction_id = interaction_example['interaction_id']
+        identifier = str(database_id) + '/' + str(interaction_id)
+
+        schema = None
+        if db_schema:
+            if remove_from:
+                schema = Schema(db_schema[database_id])
+            else:
+                schema = Schema(db_schema[database_id], simple=True)
+
+        keep = False
+        turns = []
+
+        for raw_turn in raw_turns:
+            turn = Turn(raw_turn)
+            keep_turns = turn.keep
+            assert not schema or keep_turns # if schema, then keep
+            if keep_turns:
+                keep = True
+                turns.append(turn)
+
+        interaction = Interaction(turns, schema, identifier)
+
+        return interaction, keep
+
+    return fn
+
+
 class DatasetSplit:
     """Stores a split of the dataset.
 
@@ -13,11 +58,8 @@ class DatasetSplit:
             with open(processed_filename, 'rb') as infile:
                 self.examples = pickle.load(infile)
         else:
-            print(
-                "Loading raw data from " +
-                raw_filename +
-                " and writing to " +
-                processed_filename)
+            print("Loading raw data from " + raw_filename +
+                " and writing to " + processed_filename)
 
             with open(raw_filename, 'rb') as infile:
                 examples_from_file = pickle.load(infile)

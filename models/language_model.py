@@ -48,7 +48,7 @@ class LanguageModel(nn.Module):
         return (weight.new_zeros(self.num_layers, batch_size, self.hidden_dim),
             weight.new_zeros(self.num_layers, batch_size, self.hidden_dim))
 
-    def forward(self, sentences, lens):
+    def forward(self, sentences):
         emb = self.dropout(self.embedder(sentences)) # bsize x max_len x emb_dim
         output, _ = self.rnn(emb) # bsize x max_len x hidden_dim
         decoded = self.decoder(self.dropout(output)) # bsize x max_len x vocab_size
@@ -64,7 +64,7 @@ class LanguageModel(nn.Module):
         Returns:
             Length-normalized log-probability.
         """
-        scores = self.forward(sentences[:, :-1], lens) # bsize x max_len x vocab_size
+        scores = self.forward(sentences[:, :-1]) # bsize x max_len x vocab_size
 
         log_prob = torch.gather(scores, 2, sentences.unsqueeze(-1)) \
             .contiguous().view(sentences.size(0), sentences.size(1))
