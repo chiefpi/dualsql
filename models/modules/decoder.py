@@ -106,6 +106,7 @@ class SequencePredictorWithSchema(nn.Module):
         self.params = params
 
     def _initialize_decoder_lstm(self, encoder_state):
+        # TODO
         decoder_lstm_states = []
         for i, lstm in enumerate(self.lstms):
             encoder_layer_num = 0
@@ -121,12 +122,13 @@ class SequencePredictorWithSchema(nn.Module):
 
     def get_output_token_embedding(self, output_token, input_schema):
         if input_schema:
-            assert self.output_embedder.in_vocabulary(output_token) \
-                or input_schema.in_vocabulary(output_token, surface_form=True)
-            if self.output_embedder.in_vocabulary(output_token):
+            assert self.output_embedder.in_vocab(output_token) \
+                or input_schema.in_vocab(output_token, surface_form=True)
+            if self.output_embedder.in_vocab(output_token):
                 output_token_embedding = self.output_embedder(output_token)
             else:
-                output_token_embedding = input_schema.column_name_embedder(output_token, surface_form=True)
+                output_token_embedding = input_schema.column_name_embedder(
+                    output_token, surface_form=True)
         else:
             output_token_embedding = self.output_embedder(output_token)
         return output_token_embedding

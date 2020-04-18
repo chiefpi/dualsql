@@ -289,18 +289,7 @@ class Seq2Seq(nn.Module):
 
         return new_states, flat_sequence
 
-    def build_optim(self):
-        params_trainer = []
-        params_bert_trainer = []
-        for name, param in self.named_parameters():
-            if param.requires_grad:
-                if 'model_bert' in name:
-                    params_bert_trainer.append(param)
-                else:
-                    params_trainer.append(param)
-        self.trainer = torch.optim.Adam(params_trainer, lr=self.params.initial_learning_rate)
-        if self.params.fine_tune_bert:
-            self.bert_trainer = torch.optim.Adam(params_bert_trainer, lr=self.params.lr_bert)
+
 
     def set_dropout(self, value):
         """ Sets the dropout to a specified value.

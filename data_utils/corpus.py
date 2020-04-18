@@ -5,7 +5,6 @@ import random
 import json
 import math
 
-from data_utils.batch import TurnBatch, InteractionItem
 from data_utils.split import DatasetSplit, load_function
 from data_utils.data_vocab import DataVocab
 
@@ -202,8 +201,7 @@ class Corpus:
         interactions = [interaction for interaction in dataset.examples
             if len(interaction) <= max_interaction_length]
         for interaction in interactions:
-            interaction.set_valid_length(max_inp.
-            _length, max_output_length)
+            interaction.set_valid_length(max_input_length, max_output_length)
         if sorted_by_length:
             return sorted(interactions, key=len, reverse=True) # desc
         else:
@@ -230,7 +228,7 @@ class Corpus:
         if randomize:
             random.shuffle(turns)
 
-        return [TurnBatch(turns[i:i+batch_size])
+        return [turns[i:i+batch_size]
             for i in range(0, len(turns), batch_size)]
 
     def get_interaction_items(
@@ -257,7 +255,7 @@ class Corpus:
         if randomize:
             random.shuffle(interactions)
 
-        return [InteractionItem(i) for i in interactions]
+        return interactions
 
     def get_random_turns(
             self,

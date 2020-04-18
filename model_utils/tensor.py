@@ -2,6 +2,7 @@ import torch
 
 def lens2mask(lens):
     """Calculates masks for lengths.
+    
     Args:
         lens (list of int): bsize
     Returns:

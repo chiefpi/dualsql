@@ -114,14 +114,14 @@ class Schema:
     def __len__(self):
         return self.num_col
 
-    def in_vocabulary(self, column_name, surface_form=False):
+    def in_vocab(self, column_name, surface_form=False):
         if surface_form:
             return column_name in self.column_names_to_id
         else:
             return column_name in self.column_names_emb_input_to_id
 
     def column_name_embedder_bow(self, column_name, surface_form=False, column_name_token_embedder=None):
-        assert self.in_vocabulary(column_name, surface_form)
+        assert self.in_vocab(column_name, surface_form)
         if surface_form:
             column_name_id = self.column_names_to_id[column_name]
             column_name_embedder_input = self.column_names_emb_input[column_name_id]
@@ -137,7 +137,7 @@ class Schema:
         assert len(self.column_name_embeddings) == self.num_col
 
     def column_name_embedder(self, column_name, surface_form=False):
-        assert self.in_vocabulary(column_name, surface_form)
+        assert self.in_vocab(column_name, surface_form)
         if surface_form:
             column_name_id = self.column_names_to_id[column_name]
         else:

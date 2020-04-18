@@ -91,6 +91,7 @@ class TokenPredictor(nn.Module):
         return scores, self.vocabulary.inorder_tokens
 
     def forward(self, prediction_input, dropout=0.):
+        # TODO: rewrite, remove dropout
         decoder_state = prediction_input.decoder_state
         input_hidden_states = prediction_input.input_hidden_states
 

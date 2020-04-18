@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model_utils.tensor import lens2mask
-from modules.embedder import Embedder, load_vocab_embs
+from models.modules.embedder import Embedder, load_vocab_embs
 
 
 class LanguageModel(nn.Module):
@@ -12,8 +12,8 @@ class LanguageModel(nn.Module):
             self,
             vocab_size,
             emb_dim,
-            hidden_dim=300,
-            num_layers=2,
+            hidden_dim,
+            num_layers,
             dropout=0.5,
             tie_weights=False):
         super().__init__()
@@ -64,8 +64,8 @@ class LanguageModel(nn.Module):
         Returns:
             Length-normalized log-probability.
         """
-        scores = self.forward(sentences[:, :-1]) # bsize x max_len x vocab_size
-
+        scores = self.forward(sentences) # bsize x max_len x vocab_size
+        # TODO
         log_prob = torch.gather(scores, 2, sentences.unsqueeze(-1)) \
             .contiguous().view(sentences.size(0), sentences.size(1))
         sentence_log_prob = torch.sum(log_prob*lens2mask(lens).float(), dim=-1)

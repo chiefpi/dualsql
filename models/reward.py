@@ -3,8 +3,8 @@ import torch
 from data_utils.vocabulary import UNK_TOK, EOS_TOK
 from model_utils.tensor import lens2mask
 
-
-class RewardModel():
+# TODO
+class RewardModel:
 
     def __init__(self, utter_lm, query_lm, vocab,
             sp_device='cpu', qg_device='cpu'):

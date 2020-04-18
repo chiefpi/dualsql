@@ -1,7 +1,3 @@
-"""Contains the class for an interaction."""
-import torch
-
-
 class Interaction:
     """Contains an interaction.
 
@@ -21,12 +17,13 @@ class Interaction:
     def __len__(self):
         return len(self.turns)
 
-    def input_seqs(self):
-        return [turn.input_seq for turn in self.turns]
+    def utter_seqs(self):
+        return [turn.utter_seq for turn in self.turns]
 
-    def output_seqs(self):
-        return [turn.output_seq for turn in self.turns]
+    def query_seqs(self):
+        return [turn.query_seq for turn in self.turns]
 
-    def set_valid_length(self, max_input_length, max_output_length):
-        self.max_input_length = max_input_length
-        self.max_output_length = max_output_length
+    def set_valid_length(self, max_utter_length, max_query_length):
+        # TODO
+        self.max_utter_length = max_utter_length
+        self.max_query_length = max_query_length

@@ -1,10 +1,11 @@
-""" Embedder for tokens. """
+"""Embedder for tokens."""
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import data_utils.vocabulary as vocabulary_handler
+from data_utils.vocab import UNK_TOK
 
 
 def load_vocab_embs(vocab, emb_file):
@@ -105,27 +106,27 @@ class Embedder(nn.Module):
     """Embeds tokens."""
     def __init__(
             self,
-            embedding_size,
-            initializer=None,
-            vocabulary=None,
+            emb_size,
+            init=None,
+            vocab=None,
             num_tokens=-1,
             freeze=False,
             use_unk=True):
         super().__init__()
 
-        if vocabulary:
-            assert num_tokens < 0, "Specified a vocabulary but also set number of tokens to " + \
+        if vocab:
+            assert num_tokens < 0, "Specified a vocab but also set number of tokens to " + \
                 str(num_tokens)
-            self.in_vocab = lambda token: token in vocabulary.tokens
-            self.vocab_token_lookup = lambda token: vocabulary.token_to_id(token)
+            self.in_vocab = lambda token: token in vocab.tokens
+            self.vocab_token_lookup = lambda token: vocab.token_to_id(token)
             if use_unk:
-                self.unknown_token_id = vocabulary.token_to_id(vocabulary_handler.UNK_TOK)
+                self.unknown_token_id = vocab.token_to_id(UNK_TOK)
             else:
                 self.unknown_token_id = -1
-            self.vocabulary_size = len(vocabulary)
+            self.vocab_size = len(vocab)
         else:
             def check_vocab(index):
-                """Makes sure the index is in the vocabulary."""
+                """Makes sure the index is in the vocab."""
                 assert index < num_tokens, "Passed token ID " + \
                     str(index) + "; expecting something less than " + str(num_tokens)
                 return index < num_tokens
@@ -133,14 +134,14 @@ class Embedder(nn.Module):
             self.vocab_token_lookup = lambda x: x
             self.unknown_token_id = num_tokens  # Deliberately throws an error here,
             # But should crash before this
-            self.vocabulary_size = num_tokens
+            self.vocab_size = num_tokens
 
-        if initializer is not None:
-            word_embeddings_tensor = torch.FloatTensor(initializer)
+        if init is not None:
+            word_embeddings_tensor = torch.FloatTensor(init)
             self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
                 word_embeddings_tensor, freeze=freeze)
         else:
-            init_tensor = torch.empty(self.vocabulary_size, embedding_size).uniform_(-0.1, 0.1)
+            init_tensor = torch.empty(self.vocab_size, emb_size).uniform_(-0.1, 0.1)
             self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
                 init_tensor, freeze=False)
 

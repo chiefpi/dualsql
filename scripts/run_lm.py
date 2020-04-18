@@ -106,9 +106,9 @@ def train(model, data, params):
     criterion = nn.NLLLoss()
     best_valid_loss = None
     # Loop over epochs.
+    model.train()
     for epoch in range(params.epochs):
         log.put('Epoch: {:d}' % epoch)
-        model.train()
         epoch_loss = 0.
         hidden = model.init_hidden(params.batch_size)
         for batch in train_batches:
@@ -138,8 +138,7 @@ def train(model, data, params):
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or valid_loss < best_valid_loss:
-            with open(os.path.join(params.log_dir, params.save_file), 'wb') as f:
-                torch.save(model, f)
+            model.save(os.path.join(params.log_dir, params.save_file))
             best_val_loss = valid_loss
         else:
             lr /= 4.0

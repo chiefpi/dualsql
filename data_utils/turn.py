@@ -45,8 +45,8 @@ def sql_tokenize(string):
     keep = True
     for i, token in enumerate(tokens):
         if token == ".":
-            newtoken = merged_tokens[-1] + "." + tokens[i + 1]
-            merged_tokens = merged_tokens[:-1] + [newtoken]
+            new_token = merged_tokens[-1] + "." + tokens[i + 1]
+            merged_tokens = merged_tokens[:-1] + [new_token]
             keep = False
         elif keep:
             merged_tokens.append(token)
@@ -60,20 +60,20 @@ class Turn:
     """Contains a turn in an interaction.
     
     Attributes:
-        input_seq (list of str): nl tokens.
-        output_seq (list of str): sql tokens.
+        utter_seq (list of str): nl tokens.
+        query_seq (list of str): sql tokens.
         keep (bool): if not empty.
     """
 
     def __init__(self, example):
-        self.input_seq = nl_tokenize(example[INPUT_KEY])
-        self.output_seq = example[OUTPUT_KEY]
-        self.keep = self.output_seq and self.input_seq
+        self.utter_seq = nl_tokenize(example[INPUT_KEY])
+        self.query_seq = example[OUTPUT_KEY]
+        self.keep = self.query_seq and self.utter_seq
 
     def __str__(self):
-        return 'Input: ' + ' '.join(self.input_seq) + '\n' + \
-            'Output: ' + ' '.join(self.output_seq) + '\n'
+        return 'Input: ' + ' '.join(self.utter_seq) + '\n' + \
+            'Output: ' + ' '.join(self.query_seq) + '\n'
 
-    def length_valid(self, input_limit, output_limit):
-        return len(self.input_seq) < input_limit \
-            and len(self.output_seq) < output_limit
+    def length_valid(self, utter_limit, query_limit):
+        return len(self.utter_seq) < utter_limit \
+            and len(self.query_seq) < query_limit

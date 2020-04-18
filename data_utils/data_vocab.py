@@ -1,4 +1,4 @@
-"""Gets and stores vocabulary for the data."""
+"""Gets and stores vocabulary for different data types."""
 
 from data_utils.vocabulary import Vocabulary, UNK_TOK, DEL_TOK, EOS_TOK
 
