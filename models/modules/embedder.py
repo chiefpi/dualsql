@@ -104,6 +104,7 @@ def load_all_embs(input_vocab, output_vocab, output_vocab_schema, emb_file):
 
 class Embedder(nn.Module):
     """Embeds tokens."""
+    # TODO: rewrite
     def __init__(
             self,
             emb_size,
@@ -146,21 +147,16 @@ class Embedder(nn.Module):
                 init_tensor, freeze=False)
 
     def forward(self, token):
-        assert isinstance(token, int)
+        """
+        Args:
+            token (str/int): str if vocab is provided.
+        """
 
         if self.in_vocab(token):
             index_list = torch.LongTensor([self.vocab_token_lookup(token)])
-            if self.token_embedding_matrix.weight.is_cuda:
-                index_list = index_list.cuda()
-            return self.token_embedding_matrix(index_list).squeeze()
-        elif self.anonymizer and self.anonymizer.is_anon_tok(token):
-            index_list = torch.LongTensor([self.anonymizer.get_anon_id(token)])
-            if self.token_embedding_matrix.weight.is_cuda:
-                index_list = index_list.cuda()
-            return self.entity_embedding_matrix(index_list).squeeze()
         else:
             index_list = torch.LongTensor([self.unknown_token_id])
-            if self.token_embedding_matrix.weight.is_cuda:
-                index_list = index_list.cuda()
-            return self.token_embedding_matrix(index_list).squeeze()
 
+        if self.token_embedding_matrix.weight.is_cuda:
+            index_list = index_list.cuda()
+        return self.token_embedding_matrix(index_list).squeeze()

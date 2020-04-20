@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from attention import Attention
 
@@ -10,38 +9,45 @@ class TextSchemaEncoder(nn.Module):
 
     def __init__(
             self,
-            schema_encoder_num_layer,
             schema_encoder_input_size,
             schema_encoder_state_size,
+            schema_encoder_num_layers,
             schema_attention_key_size,
-            encoder_num_layer,
+            encoder_input_size,
             encoder_state_size,
+            encoder_num_layers,
             text_attention_key_size,
-            use_text_schema_attention=True,
             dropout=0):
         super().__init__()
 
-        # create the schema encoder
-        self.schema_encoder = nn.LSTM(
-            schema_encoder_input_size,
-            schema_encoder_state_size,
-            schema_encoder_num_layer,
+        # Encoders
+        self.text_encoder = nn.LSTM(
+            encoder_input_size,
+            encoder_state_size,
+            encoder_num_layers,
             dropout=dropout,
             bidirectional=True)
 
-        # self-attention
+        self.schema_encoder = nn.LSTM(
+            schema_encoder_input_size,
+            schema_encoder_state_size,
+            schema_encoder_num_layers,
+            dropout=dropout,
+            bidirectional=True)
+
+        # Self-attention
         self.schema2schema_attention = Attention(
             schema_attention_key_size,
             schema_attention_key_size,
             schema_attention_key_size)
 
-        # text-level attention
+        # Text-level attention
         self.text_attention = Attention(
             encoder_state_size,
-            encoder_state_size, 
+            encoder_state_size,
             encoder_state_size)
 
-        # use attention module between input_hidden_states and schema_states
+        # Use attention module between input_hidden_states and schema_states
         # schema_states: self.schema_attention_key_size x len(schema)
         # input_hidden_states: self.text_attention_key_size x len(input)
         if self.use_text_schema_attention:
@@ -54,38 +60,38 @@ class TextSchemaEncoder(nn.Module):
                 schema_attention_key_size,
                 schema_attention_key_size)
 
-        # concatenation
+        # Concatenation
         schema_attention_key_size = text_attention_key_size = \
             schema_attention_key_size + text_attention_key_size
 
+        # The second layer bi-lstms
         self.schema_encoder_2 = nn.LSTM(
             schema_attention_key_size,
             schema_attention_key_size,
-            schema_encoder_num_layer,
+            schema_encoder_num_layers,
             dropout=dropout,
             bidirectional=True)
+            
         self.text_encoder_2 = nn.LSTM(
             text_attention_key_size,
             text_attention_key_size,
-            encoder_num_layer,
+            encoder_num_layers,
             dropout=dropout,
             bidirectional=True)
 
     def forward(
             self,
-            schema,
-            text_final_state,
             schema_states,
-            input_hidden_states,
-            max_gen_length,
-            input_sequence=None,
-            previous_queries=None,
-            previous_query_states=None,
-            input_schema=None):
-        """Generates the column head embedding and text token embedding."""
+            input_states):
+        """Generates the column head encodings and text token encodings.
+        
+        Args:
+            schema_states (list of Tensor)
+            input_states (list of Tensor)
+        """
 
-        if schema and not self.params.use_bert:
-            schema_states = self.encode_schema_bow_simple(input_schema)
+        schema_states = self.schema_encoder(schema_states)
+        input_hidden_states = self.text_encoder(input_states)
 
         schema_attention = self.text2schema_attention(
             torch.stack(schema_states, dim=0),
@@ -120,16 +126,20 @@ class TextSchemaEncoder(nn.Module):
 
         # bi-lstm over schema_states and input_hidden_states
         # (embedder is an identity function)
-        final_schema_state, schema_states = self.schema_encoder_2(schema_states,
-        final_text_state, input_hidden_states = self.text_encoder_2(input_hidden_states,
+        final_schema_state, schema_states = self.schema_encoder_2(
+            schema_states)
+        final_text_state, input_hidden_states = self.text_encoder_2(
+            input_hidden_states)
 
         return final_schema_state, final_text_state
     
-    def encode_schema_bow_simple(self, input_schema):
+    def encode_schema_bow_simple(self, schema):
         schema_states = []
-        for column_name in input_schema.column_names_embedder_input:
-            schema_states.append(input_schema.column_name_embedder_bow(column_name, surface_form=False, column_name_token_embedder=self.column_name_token_embedder))
-        input_schema.set_column_name_embeddings(schema_states)
+        for column_name in schema.column_names_embedder_input: # TODO: embedder input?
+            # assert schema.in_vocab(column_name, surface_form=False)
+            column_name_embeddings = [self.column_name_token_embedder(token) for token in column_name.split()]
+            column_name_embeddings = torch.stack(column_name_embeddings, dim=0).mean(dim=0)
+            schema_states.append(column_name_embeddings)
         return schema_states
 
     def encode_schema_self_attention(self, schema_states):
