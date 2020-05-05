@@ -19,87 +19,65 @@ def flatten_sequence(seq):
     return fix_parentheses(seq[:-1] if seq[-1] == EOS_TOK else seq)
 
 
-class TurnBatch:
-    """Contains a turn batch for language models."""
-    # TODO: padding
-    pass
+def get_minibatch_sp(ex_list, vocab, device, copy=False):
+    inputs = [ex.question for ex in ex_list]
+    lens = [len(ex) for ex in inputs]
+    lens_tensor = torch.tensor(lens, dtype=torch.long, device=device)
 
-# class InteractionItem:
-#     """Contains an interaction for training.
-    
-#     Attributes:
-#         interaction (Interaction)
-#     """
+    max_len = max(lens)
+    padded_inputs = [sent + [PAD] * (max_len - len(sent)) for sent in inputs]
+    inputs_idx = [[vocab.word2id[w] if w in vocab.word2id else vocab.word2id[UNK] for w in sent] for sent in padded_inputs]
+    inputs_tensor = torch.tensor(inputs_idx, dtype=torch.long, device=device)
 
-#     def __init__(
-#             self,
-#             interaction,
-#             max_input_length=math.inf,
-#             max_output_length=math.inf,
-#             max_turns=math.inf):
-#         if max_turns != math.inf:
-#             self.interaction = copy.deepcopy(interaction) # decouple
-#             self.interaction.turns = self.interaction.turns[:max_turns]
-#         else:
-#             self.interaction = interaction
+    outputs = [ex.logical_form for ex in ex_list]
+    bos_eos_outputs = [[BOS] + sent + [EOS] for sent in outputs]
+    out_lens = [len(each) for each in bos_eos_outputs]
+    max_out_len = max(out_lens)
+    padded_outputs = [sent + [PAD] * (max_out_len - len(sent)) for sent in bos_eos_outputs]
+    outputs_idx = [[vocab.lf2id[w] if w in vocab.lf2id else vocab.lf2id[UNK] for w in sent] for sent in padded_outputs]
+    outputs_tensor = torch.tensor(outputs_idx, dtype=torch.long, device=device)
+    out_lens_tensor = torch.tensor(out_lens, dtype=torch.long, device=device)
 
-#         self.max_input_length = max_input_length
-#         self.max_output_length = max_output_length
+    if copy: # pointer network need additional information
+        mapped_inputs = [ex.mapped_question for ex in ex_list]
+        oov_list, copy_inputs = [], []
+        for sent in mapped_inputs:
+            tmp_oov_list, tmp_copy_inputs = [], []
+            for idx, word in enumerate(sent):
+                if word not in vocab.lf2id and word not in tmp_oov_list and len(tmp_oov_list) < MAX_OOV_NUM:
+                    tmp_oov_list.append(word)
+                tmp_copy_inputs.append(
+                    (
+                        vocab.lf2id.get(word, vocab.lf2id[UNK]) if word in vocab.lf2id or word not in tmp_oov_list \
+                        else len(vocab.lf2id) + tmp_oov_list.index(word) # tgt_vocab_size + oov_id
+                    )
+                )
+            tmp_oov_list += [UNK] * (MAX_OOV_NUM - len(tmp_oov_list))
+            oov_list.append(tmp_oov_list)
+            copy_inputs.append(tmp_copy_inputs)
 
-#         self.pred_turns = []
-#         self.index = 0
+        copy_tokens = [
+            torch.cat([
+                torch.zeros(len(each), len(vocab.lf2id) + MAX_OOV_NUM, dtype=torch.float)\
+                    .scatter_(-1, torch.tensor(each, dtype=torch.long).unsqueeze(-1), 1.0),
+                torch.zeros(max_len - len(each), len(vocab.lf2id) + MAX_OOV_NUM, dtype=torch.float)
+            ], dim=0)
+            for each in copy_inputs
+        ]
+        copy_tokens = torch.stack(copy_tokens, dim=0).to(device) # bsize x src_len x (tgt_vocab + MAX_OOV_NUM)
 
-#     def __len__(self):
-#         return len(self.interaction)
+        dec_outputs = [
+            [
+                len(vocab.lf2id) + oov_list[idx].index(tok)
+                    if tok not in vocab.lf2id and tok in oov_list[idx] \
+                    else vocab.lf2id.get(tok, vocab.lf2id[UNK])
+                for tok in sent
+            ] + [vocab.lf2id[PAD]] * (max_out_len - len(sent))
+            for idx, sent in enumerate(bos_eos_outputs)
+        ]
+        dec_outputs_tensor = torch.tensor(dec_outputs, dtype=torch.long, device=device)
+    else:
+        dec_outputs_tensor, copy_tokens, oov_list = outputs_tensor, None, []
 
-#     def __str__(self):
-#         assert self.done()
-#         s = 'Utterances, gold queries, and predictions:\n'
-#         for i, turn in enumerate(self.interaction.turns):
-#             s += ' '.join(turn.input_seq) + '\n'
-#             s += ' '.join(self.processed_turns[i].gold_query) + '\n'
-#             s += ' '.join(self.processed_turns[i].pred_query) + '\n'
-#             s += '\n'
+    return inputs_tensor, lens_tensor, outputs_tensor, dec_outputs_tensor, out_lens_tensor, copy_tokens, oov_list, (inputs, outputs)
 
-#         return s
-
-#     def next_turn(self):
-#         turn = self.interaction.turns[self.index]
-#         self.index += 1
-
-#         return turn
-
-#     def done(self):
-#         return len(self.processed_turns) == len(self.interaction)
-
-#     def finish(self):
-#         self.processed_turns = []
-#         self.index = 0
-
-#     def turn_within_limits(self, turn_item):
-#         return turn_item.within_limits(
-#             self.max_input_length,
-#             self.max_output_length)
-
-#     def gold_turns(self):
-#         turns = []
-#         for i, turn in enumerate(self.turns):
-#             turns.append(TurnItem(self.interaction, i))
-#         return turns
-
-#     def get_schema(self):
-#         return self.interaction.schema
-
-#     def add_turn(self, turn, predicted_sequence, simple=False):
-#         self.processed_turns.append(turn)
-
-
-
-#     def gold_query(self, index):
-#         return self.turns[index].output_seq + [EOS_TOK]
-
-#     def original_gold_query(self, index):
-#         return self.turns[index].original_gold_query
-
-#     def gold_table(self, index):
-#         return self.turns[index].gold_sql_results

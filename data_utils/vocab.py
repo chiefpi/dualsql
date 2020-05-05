@@ -4,10 +4,11 @@ import os
 import pickle
 
 # Special sequencing tokens.
-UNK_TOK = "_UNK" # Replaces out-of-vocabulary words.
-EOS_TOK = "_EOS" # Appended to the end of a sequence to indicate its end.
-DEL_TOK = ";"
-# PAD_TOK = "_PAD"
+BOS_TOK = '_BOS' # Marks the beginning of generation.
+UNK_TOK = '_UNK' # Replaces out-of-vocabulary words.
+EOS_TOK = '_EOS' # Appended to the end of a sequence to indicate its end.
+DEL_TOK = ';'
+# PAD_TOK = '_PAD'
 
 class Vocabulary:
     """Contains information about words in a corpus.

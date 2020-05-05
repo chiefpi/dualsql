@@ -27,7 +27,6 @@ class LanguageModel(nn.Module):
             emb_dim,
             hidden_dim,
             num_layers,
-            batch_first=True,
             dropout=(dropout if num_layers > 1 else 0))
         self.decoder = nn.Linear(hidden_dim, vocab_size)
 
@@ -49,9 +48,9 @@ class LanguageModel(nn.Module):
             weight.new_zeros(self.num_layers, batch_size, self.hidden_dim))
 
     def forward(self, sentences):
-        emb = self.dropout(self.embedder(sentences)) # bsize x max_len x emb_dim
-        output, _ = self.rnn(emb) # bsize x max_len x hidden_dim
-        decoded = self.decoder(self.dropout(output)) # bsize x max_len x vocab_size
+        emb = self.dropout(self.embedder(sentences)) # max_len x bsize x emb_dim
+        output, _ = self.rnn(emb) # max_len x bsize x hidden_dim
+        decoded = self.decoder(self.dropout(output)) # max_len x bsize x vocab_size
         return F.log_softmax(decoded, dim=-1)
 
     def sentence_log_prob(self, sentences, lens):
@@ -64,10 +63,11 @@ class LanguageModel(nn.Module):
         Returns:
             Length-normalized log-probability.
         """
-        scores = self.forward(sentences) # bsize x max_len x vocab_size
+        src, dst = sentences[:-1], sentences[1:]
+        scores = self.forward(src) # max_len x bsize x vocab_size
         # TODO
-        log_prob = torch.gather(scores, 2, sentences.unsqueeze(-1)) \
-            .contiguous().view(sentences.size(0), sentences.size(1))
+        log_prob = torch.gather(scores, 2, dst.unsqueeze(-1)) \
+            .contiguous().view(dst.size(0), dst.size(1))
         sentence_log_prob = torch.sum(log_prob*lens2mask(lens).float(), dim=-1)
         return sentence_log_prob / lens.float()
 

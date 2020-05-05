@@ -137,7 +137,7 @@ class Embedder(nn.Module):
             # But should crash before this
             self.vocab_size = num_tokens
 
-        if init is not None:
+        if init:
             word_embeddings_tensor = torch.FloatTensor(init)
             self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
                 word_embeddings_tensor, freeze=freeze)
@@ -146,16 +146,18 @@ class Embedder(nn.Module):
             self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
                 init_tensor, freeze=False)
 
-    def forward(self, token):
+    def forward(self, tokens):
         """
         Args:
-            token (str/int): str if vocab is provided.
+            tokens (list of str/int): str if vocab is provided.
+
+        Returns:
+            len x emb_dim
         """
 
-        if self.in_vocab(token):
-            index_list = torch.LongTensor([self.vocab_token_lookup(token)])
-        else:
-            index_list = torch.LongTensor([self.unknown_token_id])
+        index_list = torch.LongTensor([self.vocab_token_lookup(token) 
+            if self.in_vocab(token) else self.unknown_token_id
+            for token in tokens])
 
         if self.token_embedding_matrix.weight.is_cuda:
             index_list = index_list.cuda()

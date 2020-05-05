@@ -220,6 +220,9 @@ class Corpus:
             max_input_length (int): Maximum length of input to keep.
             max_output_length (int): Maximum length of output to use.
             randomize (bool): Whether to randomize the ordering.
+
+        Returns:
+            list of list of Turn
         """
         turns = self.get_all_turns(
             self.train_data,

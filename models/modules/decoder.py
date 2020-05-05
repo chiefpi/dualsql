@@ -83,42 +83,48 @@ class SequencePredictorWithSchema(nn.Module):
     """
     def __init__(
             self,
-            params,
             input_size,
+            decoder_hidden_size,
+            decoder_num_layers,
+            output_emb_size,
             output_embedder,
             column_name_token_embedder,
             token_predictor,
+            use_editing=False,
+            use_schema_attention=False,
+            use_output_attention=False,
             dropout=0.):
         super().__init__()
 
         self.lstm = nn.LSTM(
             input_size,
-            params.decoder_hidden_size,
-            params.decoder_num_layers,
+            decoder_hidden_size,
+            decoder_num_layers,
             dropout=dropout)
         self.token_predictor = token_predictor
         self.output_embedder = output_embedder
         self.column_name_token_embedder = column_name_token_embedder
-        self.start_token_embedding = torch_utils.add_params((params.output_embedding_size,), "y-0")
+        self.start_token_embedding = torch_utils.add_params((output_emb_size,), "y-0")
 
-        self.input_size = input_size
+        self.use_editing = use_editing
+        self.use_schema_attention = use_schema_attention
+        self.use_output_attention = use_output_attention
+        self.context_vector_size = input_size - output_emb_size
         self.dropout = dropout
-        self.params = params
 
-    def _initialize_decoder_lstm(self, encoder_state):
-        # TODO
-        decoder_lstm_states = []
-        for i, lstm in enumerate(self.lstms):
-            encoder_layer_num = 0
-            if len(encoder_state[0]) > 1:
-                encoder_layer_num = i
+    # def _initialize_decoder_lstm(self, encoder_state):
+    #     decoder_lstm_states = []
+    #     for i, lstm in enumerate(self.lstms):
+    #         encoder_layer_num = 0
+    #         if len(encoder_state[0]) > 1:
+    #             encoder_layer_num = i
 
-            # check which one is h_0, which is c_0
-            c_0 = encoder_state[0][encoder_layer_num].view(1,-1)
-            h_0 = encoder_state[1][encoder_layer_num].view(1,-1)
+    #         # check which one is h_0, which is c_0
+    #         c_0 = encoder_state[0][encoder_layer_num].view(1,-1)
+    #         h_0 = encoder_state[1][encoder_layer_num].view(1,-1)
 
-            decoder_lstm_states.append((h_0, c_0))
-        return decoder_lstm_states
+    #         decoder_lstm_states.append((h_0, c_0))
+    #     return decoder_lstm_states
 
     def get_output_token_embedding(self, output_token, input_schema):
         if input_schema:
@@ -134,9 +140,9 @@ class SequencePredictorWithSchema(nn.Module):
         return output_token_embedding
 
     def get_decoder_input(self, output_token_embedding, prediction):
-        if self.params.use_schema_attention and self.params.use_query_attention:
+        if self.use_schema_attention and self.use_query_attention:
             decoder_input = torch.cat([output_token_embedding, prediction.utterance_attention_results.vector, prediction.schema_attention_results.vector, prediction.query_attention_results.vector], dim=0)
-        elif self.params.use_schema_attention:
+        elif self.use_schema_attention:
             decoder_input = torch.cat([output_token_embedding, prediction.utterance_attention_results.vector, prediction.schema_attention_results.vector], dim=0)
         else:
             decoder_input = torch.cat([output_token_embedding, prediction.utterance_attention_results.vector], dim=0)
@@ -155,7 +161,6 @@ class SequencePredictorWithSchema(nn.Module):
         """Generates a sequence."""
         index = 0
 
-        context_vector_size = self.input_size - self.params.output_embedding_size
 
         # Decoder states: just the initialized decoder.
         # Current input to decoder: phi(start_token) ; zeros the size of the
@@ -167,9 +172,9 @@ class SequencePredictorWithSchema(nn.Module):
         decoder_states = self._initialize_decoder_lstm(final_encoder_state)
 
         if self.start_token_embedding.is_cuda:
-            decoder_input = torch.cat([self.start_token_embedding, torch.cuda.FloatTensor(context_vector_size).fill_(0)], dim=0)
+            decoder_input = torch.cat([self.start_token_embedding, torch.cuda.FloatTensor(self.context_vector_size).fill_(0)], dim=0)
         else:
-            decoder_input = torch.cat([self.start_token_embedding, torch.zeros(context_vector_size)], dim=0)
+            decoder_input = torch.cat([self.start_token_embedding, torch.zeros(self.context_vector_size)], dim=0)
 
         continue_generating = True
         while continue_generating:
@@ -195,7 +200,7 @@ class SequencePredictorWithSchema(nn.Module):
                 distribution_map = prediction.aligned_tokens
                 assert len(probabilities) == len(distribution_map)
 
-                if self.params.use_previous_query and self.params.use_copy_switch and len(previous_queries) > 0:
+                if self.use_editing and len(previous_queries) > 0:
                     assert prediction.query_scores.dim() == 1
                     query_token_probabilities = F.softmax(prediction.query_scores, dim=0).cpu().data.numpy().tolist()
 

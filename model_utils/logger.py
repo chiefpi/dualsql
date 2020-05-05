@@ -1,58 +1,17 @@
-"""Contains the logging class."""
+import time
+import logging
 
-class Logger():
-    """
-    Attributes:
-        fileptr (file): File pointer for input/output.
-        lines (list of str): The lines read from the log.
-    """
-    def __init__(self, filename, option):
-        self.fileptr = open(filename, option)
-        if option == "r":
-            self.lines = self.fileptr.readlines()
-        else:
-            self.lines = []
+def Logger(default_level, log_path):
+    
+    logger = logging.getLogger(__name__)
+    logger.setLevel(default_level)
+    formatter = logging.Formatter("%(levelname)s:%(module)s:%(lineno)d:%(message)s")
 
-    def put(self, string):
-        """Writes to the file."""
-        self.fileptr.write(string + "\n")
-        self.fileptr.flush()
+    if log_path is not None:
+        time_tag = time.strftime("%Y-%a-%b-%d-%H-%M-%S", time.localtime())
+        file_path = 'logs/{}-{}.log'.format(log_path, time_tag)
+        file_handler = logging.FileHandler(file_path)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
-    def close(self):
-        """Closes the logger."""
-        self.fileptr.close()
-
-    def findlast(self, identifier, default=0.):
-        """Finds the last line in the log with a certain value."""
-        for line in self.lines[::-1]:
-            if line.lower().startswith(identifier):
-                string = line.strip().split("\t")[1]
-                if string.replace(".", "").isdigit():
-                    return float(string)
-                elif string.lower() == "true":
-                    return True
-                elif string.lower() == "false":
-                    return False
-                else:
-                    return string
-        return default
-
-    def contains(self, string):
-        """Dtermines whether the string is present in the log."""
-        for line in self.lines[::-1]:
-            if string.lower() in line.lower():
-                return True
-        return False
-
-    def findlast_log_before(self, before_str):
-        """Finds the last entry in the log before another entry."""
-        loglines = []
-        in_line = False
-        for line in self.lines[::-1]:
-            if line.startswith(before_str):
-                in_line = True
-            elif in_line:
-                loglines.append(line)
-            if line.strip() == "" and in_line:
-                return "".join(loglines[::-1])
-        return "".join(loglines[::-1])
+    return logger
