@@ -10,10 +10,11 @@ class LanguageModel(nn.Module):
     """Language Model for utterances and queries."""
     def __init__(
             self,
-            vocab_size,
-            emb_dim,
+            vocab,
+            emb_file,
             hidden_dim,
             num_layers,
+            freeze=False,
             dropout=0.5,
             tie_weights=False):
         super().__init__()
@@ -22,13 +23,19 @@ class LanguageModel(nn.Module):
         self.num_layers = num_layers
 
         self.dropout = nn.Dropout(dropout)
-        self.embedder = nn.Embedding(vocab_size, emb_dim)
+        # self.embedder = nn.Embedding(vocab_size, emb_dim)
+        vocab_emb, emb_dim = load_vocab_embs(vocab, emb_file)
+        self.embedder = Embedder(
+            emb_dim,
+            init=vocab_emb,
+            vocab=vocab,
+            freeze=freeze)
         self.rnn = nn.LSTM(
             emb_dim,
             hidden_dim,
             num_layers,
             dropout=(dropout if num_layers > 1 else 0))
-        self.decoder = nn.Linear(hidden_dim, vocab_size)
+        self.decoder = nn.Linear(hidden_dim, len(vocab))
 
         if tie_weights:
             if hidden_dim != emb_dim:
@@ -38,7 +45,6 @@ class LanguageModel(nn.Module):
         self.init_weights()
 
     def init_weights(self, init_range=0.1):
-        self.embedder.weight.data.uniform_(-init_range, init_range)
         self.decoder.bias.data.zero_()
         self.decoder.weight.data.uniform_(-init_range, init_range)
 
@@ -65,10 +71,15 @@ class LanguageModel(nn.Module):
         """
         src, dst = sentences[:-1], sentences[1:]
         scores = self.forward(src) # max_len x bsize x vocab_size
+        print(scores.size())
         # TODO
         log_prob = torch.gather(scores, 2, dst.unsqueeze(-1)) \
             .contiguous().view(dst.size(0), dst.size(1))
+        print(log_prob)
+        print(lens2mask(lens))
+        print(log_prob*lens2mask(lens).float())
         sentence_log_prob = torch.sum(log_prob*lens2mask(lens).float(), dim=-1)
+        print(sentence_log_prob)
         return sentence_log_prob / lens.float()
 
     def load(self, filename):

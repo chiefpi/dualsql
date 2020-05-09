@@ -137,7 +137,7 @@ class Embedder(nn.Module):
             # But should crash before this
             self.vocab_size = num_tokens
 
-        if init:
+        if init is not None:
             word_embeddings_tensor = torch.FloatTensor(init)
             self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
                 word_embeddings_tensor, freeze=freeze)

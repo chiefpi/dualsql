@@ -12,12 +12,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from model_utils.logger import Logger
 from data_utils import corpus
 from data_utils.corpus import Corpus
-from model.language_model import LanguageModel
-from model_utils.train import evaluate_turn_sample, \
-    train_epoch_with_turns, evaluate_using_predicted_queries
+from models.language_model import LanguageModel
 
 
 # Set the random seed manually for reproducibility
@@ -31,19 +30,36 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def get_params():
     parser = argparse.ArgumentParser()
     # Data
-    parser.add_argument('--embedding_filename', type=str)
-    parser.add_argument('--input_vocabulary_filename', type=str,
+    parser.add_argument('--input_vocab_filename', type=str,
         default='input_vocabulary.pkl')
-    parser.add_argument('--output_vocabulary_filename', type=str,
+    parser.add_argument('--output_vocab_filename', type=str,
         default='output_vocabulary.pkl')
     parser.add_argument('--data_dir', type=str,
-        default='data/sparc')
+        default='processed_sparc_data_removefrom')
+
     parser.add_argument('--raw_train_filename', type=str,
         default='data/sparc_data_removefrom/train.pkl')
-    parser.add_argument('--raw_validation_filename', type=str,
+    parser.add_argument('--raw_valid_filename', type=str,
         default='data/sparc_data_removefrom/dev.pkl')
+    parser.add_argument('--raw_test_filename', type=str,
+        default='data/sparc_data_removefrom/test.pkl')
+    
+    parser.add_argument('--processed_train_filename', type=str,
+        default='train.pkl')
+    parser.add_argument('--processed_dev_filename', type=str,
+        default='dev.pkl')
+    parser.add_argument('--processed_valid_filename', type=str,
+        default='validation.pkl')
+    parser.add_argument('--processed_test_filename', type=str,
+        default='test.pkl')
+
+    parser.add_argument('--database_schema_filename', type=str,
+        default='data/sparc_data_removefrom/tables.json')
+    parser.add_argument('--embedding_filename', type=str,
+        default='glove/glove.840B.300d.txt')
+
     # Model
-    parser.add_argument('--task', choices=['utterance', 'query'])
+    parser.add_argument('--primal', type=bool, default=False)
     parser.add_argument('--emb_dim', type=int, default=300)
     parser.add_argument('--hidden_dim', type=int, default=300)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -56,12 +72,12 @@ def get_params():
     parser.add_argument('--lr', type=float, default=20)
     parser.add_argument('--clip', type=float, default=0.25)
     parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--batch_size', type=int, default=20)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--train_eval_size', type=int, default=20)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
-    parser.add_argument('--log_dir', type=str, 
-        default='logs/language_model')
+    parser.add_argument('--log_name', type=str, 
+        default='lm')
     parser.add_argument('--save_file', type=str,
         default='model.pt')
 
@@ -80,63 +96,71 @@ def get_params():
     return args
 
 
-def repackage_hidden(h):
-    """Wraps hidden states in new Tensors, to detach them from their history."""
+def train_batches(model, batches, optimizer, criterion, params):
+    model.train()
+    epoch_loss = 0.
+    for batch in batches:
+        optimizer.zero_grad()
+        for turn in batch:
+            sent = turn.utter_seq if params.primal else turn.query_seq
+            output = model(sent[:-1])
+            loss = criterion(output, sent[1:])
+            loss.backward() # TODO: batch loss
 
-    if isinstance(h, torch.Tensor):
-        return h.detach()
-    else:
-        return tuple(repackage_hidden(v) for v in h)
+        # Gradient clip
+        nn.utils.clip_grad_norm_(model.parameters(), params.clip)
 
+        epoch_loss += loss.item()
+        optimizer.step()
+
+    return epoch_loss
+
+
+def eval_turns(model, turns, criterion, params):
+    model.eval()
+    total_loss = 0.
+    with torch.no_grad():
+        for turn in turns:
+            sent = turn.utter_seq if params.primal else turn.query_seq
+            output = model(sent[:-1])
+            total_loss += criterion(output, sent[1:]).item()
+
+    return total_loss / len(turns)
+    
 
 def train(model, data, params):
     """Trains a language model on a corpus."""
 
-    log = Logger(os.path.join(params.log_dir, params.log_file), 'w')
+    log = Logger(20, params.log_name)
     num_train = corpus.num_turns(data.train_data)
     log.info('Total number of training turns: {:d}' % num_train)
 
     train_batches = data.get_turn_batches(params.batch_size)
     # evaluation samples
     train_samples = data.get_random_turns(params.train_eval_size)
-    valid_examples = data.get_all_turns(data.valid_data)
+    valid_samples = data.get_all_turns(data.valid_data)
 
     log.info('Number of steps per epoch: {:d}' % len(train_batches))
     log.info('Batch size: {:d}' % params.batch_size)
+    assert params.batch_size == 1 # TODO
 
-    lr = params.lr
     criterion = nn.NLLLoss()
     optimizer = optim.Adam(model.parameters(), lr=params.lr)
     best_valid_loss = None
     # Loop over epochs.
     for epoch in range(params.epochs):
         log.info('Epoch: {:d}' % epoch)
-        model.train()
-        epoch_loss = 0.
-        hidden = model.init_hidden(params.batch_size)
-        for batch in train_batches:
-            # Detach the hidden state from how it was previously produced.
-            optimizer.zero_grad()
-            hidden = repackage_hidden(hidden)
-            batch_scores = model(inputs)
-            loss = criterion(output, target)
-            loss.backward()
+        epoch_loss = train_batches(
+            model, train_batches, optimizer, criterion, params)
+        log.info('Train epoch loss: {:.3f}'.format(epoch_loss/num_train))
 
-            # Gradient clip
-            nn.utils.clip_grad_norm_(model.parameters(), params.clip)
-            # for p in model.parameters():
-            #     p.data.add_(-lr, p.grad.data)
-
-            epoch_loss += loss.item()
-            optimizer.step()
-
-        log.info('Train epoch loss: {:.3f}'.format(epoch_loss))
-
-        train_eval_loss = evaluate_turn_sample(train_samples)
+        train_eval_loss = eval_turns(
+            model, train_samples, criterion, params)
         log.info('Train evaluation loss: {:.3f} | ppl: {:.3f}'.format(
             train_eval_loss, math.exp(train_eval_loss)))
 
-        valid_loss = evaluate_turn_sample(valid_examples)
+        valid_loss = eval_turns(
+            model, valid_samples, criterion, params)
         log.info('Validation loss: {:.3f} | ppl: {:.3f}'.format(
             valid_loss, math.exp(valid_loss)))
 
@@ -144,8 +168,6 @@ def train(model, data, params):
         if not best_val_loss or valid_loss < best_valid_loss:
             model.save(os.path.join(params.log_dir, params.save_file))
             best_val_loss = valid_loss
-        else:
-            lr /= 4.0
 
     log.info('Finished training!')
 
@@ -162,32 +184,24 @@ def evaluate(model, data, params, split):
     model.load(os.path.join(params.log_dir, params.language_model_file))
     data_split = eval('data.{}_data'.format(split))
     examples = data.get_all_turns(data_split)
-
-    # Turn on evaluation mode which disables dropout.
-    model.eval()
-    epoch_loss = 0.
-    hidden = model.init_hidden(params.batch_size)
     criterion = nn.NLLLoss()
-    with torch.no_grad():
-        for i in range(0, data.size(0) - 1, params.bptt):
-            data, targets = get_batch(data, i)
-            output, hidden = model(data, hidden)
-            hidden = repackage_hidden(hidden)
-            epoch_loss += len(data) * criterion(output, targets).item()
-    test_loss = epoch_loss / (len(data) - 1)
+    
+    eval_loss = eval_turns(model, examples, criterion, params)
     print('Evaluation loss: {:.3f} | ppl: {:.3f}'.format(
-        test_loss, math.exp(test_loss)))
+        eval_loss, math.exp(eval_loss)))
 
 
 if __name__ == '__main__':
     params = get_params()
 
     data = Corpus(params)
+    vocab = data.input_vocab if params.primal else data.output_vocab
     model = LanguageModel(
-        vocab_size=len(data.input_vocabulary),
-        emb_file=params.emb_file,
+        vocab=vocab,
+        emb_file=params.embedding_filename,
         hidden_dim=params.hidden_dim,
         num_layers=params.num_layers,
+        freeze=params.primal,
         dropout=params.dropout,
         tie_weights=params.tied).to(device)
 

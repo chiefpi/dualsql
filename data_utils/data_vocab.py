@@ -1,6 +1,6 @@
 """Gets and stores vocabulary for different data types."""
 
-from data_utils.vocabulary import Vocabulary, UNK_TOK, DEL_TOK, EOS_TOK
+from data_utils.vocab import Vocabulary, UNK_TOK, DEL_TOK, EOS_TOK
 
 MIN_INPUT_OCCUR = 1
 MIN_OUTPUT_OCCUR = 1

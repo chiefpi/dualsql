@@ -22,13 +22,13 @@ def write_interaction(interaction_list,split,output_dir):
         new_interaction = []
         for ut in obj["interaction"]:
             sql = ut["sql"]
-            sqls = [sql]
-            tok_sql_list = []
-            for sql in sqls:
-                results = []
-                tokenized_sql = sql.split()
-                tok_sql_list.append((tokenized_sql, results))
-            ut["sql"] = tok_sql_list
+            # sqls = [sql]
+            # tok_sql_list = []
+            # for sql in sqls:
+                # results = []
+            tokenized_sql = sql.split()
+                # tok_sql_list.append(tokenized_sql)
+            ut["sql"] = tokenized_sql
             new_interaction.append(ut)
         obj["interaction"] = new_interaction
         new_objs.append(obj)
@@ -474,7 +474,7 @@ def read_db_split(data_dir):
 
 def preprocess(dataset, remove_from=False):
     # Validate output_vocab
-    output_vocab = ['_UNK', '_EOS', '.', 't1', 't2', '=', 'select', 'from', 'as', 'value', 'join', 'on', ')', '(', 'where', 't3', 'by', ',', 'count', 'group', 'order', 'distinct', 't4', 'and', 'limit', 'desc', '>', 'avg', 'having', 'max', 'in', '<', 'sum', 't5', 'intersect', 'not', 'min', 'except', 'or', 'asc', 'like', '!', 'union', 'between', 't6', '-', 't7', '+', '/']
+    output_vocab = ['_UNK', '_BOS', '_EOS', '.', 't1', 't2', '=', 'select', 'from', 'as', 'value', 'join', 'on', ')', '(', 'where', 't3', 'by', ',', 'count', 'group', 'order', 'distinct', 't4', 'and', 'limit', 'desc', '>', 'avg', 'having', 'max', 'in', '<', 'sum', 't5', 'intersect', 'not', 'min', 'except', 'or', 'asc', 'like', '!', 'union', 'between', 't6', '-', 't7', '+', '/']
     if remove_from:
         output_vocab = ['_UNK', '_EOS', '=', 'select', 'value', ')', '(', 'where', ',', 'count', 'group_by', 'order_by', 'distinct', 'and', 'limit_value', 'limit', 'desc', '>', 'avg', 'having', 'max', 'in', '<', 'sum', 'intersect', 'not', 'min', 'except', 'or', 'asc', 'like', '!=', 'union', 'between', '-', '+', '/']
     print('size of output_vocab', len(output_vocab))
@@ -486,21 +486,21 @@ def preprocess(dataset, remove_from=False):
         database_schema_filename = 'data/spider/tables.json'
         output_dir = 'data/spider_data'
         if remove_from:
-            output_dir = 'spider_data_removefrom'
+            output_dir = 'data/spider_data_removefrom'
         train_database, dev_database = read_db_split(spider_dir)
     elif dataset == 'sparc':
         sparc_dir = 'data/sparc/'
         database_schema_filename = 'data/sparc/tables.json'
         output_dir = 'data/sparc_data'
         if remove_from:
-            output_dir = 'sparc_data_removefrom'
+            output_dir = 'data/sparc_data_removefrom'
         train_database, dev_database = read_db_split(sparc_dir)
     elif dataset == 'cosql':
         cosql_dir = 'data/cosql/'
         database_schema_filename = 'data/cosql/tables.json'
         output_dir = 'data/cosql_data'
         if remove_from:
-            output_dir = 'cosql_data_removefrom'
+            output_dir = 'data/cosql_data_removefrom'
         train_database, dev_database = read_db_split(cosql_dir)
 
     if os.path.isdir(output_dir):

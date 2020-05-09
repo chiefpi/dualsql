@@ -23,10 +23,7 @@ def load_function(db_schema=None, remove_from=True):
 
         schema = None
         if db_schema:
-            if remove_from:
-                schema = Schema(db_schema[database_id])
-            else:
-                schema = Schema(db_schema[database_id], simple=True)
+            schema = Schema(db_schema[database_id], simple=not remove_from)
 
         keep = False
         turns = []
@@ -68,9 +65,9 @@ class DatasetSplit:
 
             self.examples = []
             for example in examples_from_file:
-                obj, keep = load_function(example)
+                interaction, keep = load_function(example)
                 if keep:
-                    self.examples.append(obj)
+                    self.examples.append(interaction)
 
             print("Loaded " + str(len(self.examples)) + " examples")
             with open(processed_filename, 'wb') as outfile:

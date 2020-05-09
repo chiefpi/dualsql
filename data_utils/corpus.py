@@ -17,7 +17,7 @@ class Corpus:
         valid_data (DatasetSplit)
         input_vocab (DataVocab): utterance vocabulary
         output_vocab (DataVocab): query vocabulary
-        output_vocab_shema (DataVocab): schema vocabulary
+        output_vocab_schema (DataVocab): schema vocabulary
     """
 
     def __init__(self, params):
@@ -47,15 +47,15 @@ class Corpus:
             int_load_function)
         self.valid_data = DatasetSplit(
             os.path.join(params.data_dir, params.processed_valid_filename),
-            params.raw_validation_filename,
+            params.raw_valid_filename,
             int_load_function)
 
-        train_input_seqs = collapse_list(self.train_data.get_ex_properties(lambda i: i.input_seqs()))
-        valid_input_seqs = collapse_list(self.valid_data.get_ex_properties(lambda i: i.input_seqs()))
-        all_input_seqs = train_input_seqs + valid_input_seqs
+        train_input_tokens = collapse_list(self.train_data.get_ex_properties(lambda i: i.utter_seqs()))
+        valid_input_tokens = collapse_list(self.valid_data.get_ex_properties(lambda i: i.utter_seqs()))
+        all_input_tokens = train_input_tokens + valid_input_tokens
 
         self.input_vocab = DataVocab(
-            all_input_seqs,
+            all_input_tokens,
             os.path.join(params.data_dir, params.input_vocab_filename),
             params,
             data_type='input')
@@ -66,9 +66,9 @@ class Corpus:
             params,
             data_type='schema')
 
-        train_output_seqs = collapse_list(self.train_data.get_ex_properties(lambda i: i.output_seqs()))
-        valid_output_seqs = collapse_list(self.valid_data.get_ex_properties(lambda i: i.output_seqs()))
-        all_output_seqs = train_output_seqs + valid_output_seqs
+        train_output_tokens = collapse_list(self.train_data.get_ex_properties(lambda i: i.query_seqs()))
+        valid_output_tokens = collapse_list(self.valid_data.get_ex_properties(lambda i: i.query_seqs()))
+        all_output_tokens = train_output_tokens + valid_output_tokens
 
         sql_keywords = ['.', 't1', 't2', '=', 'select', 'as', 'join', 'on', ')', '(', \
             'where', 't3', 'by', ',', 'group', 'distinct', 't4', 'and', 'limit', 'desc', \
@@ -81,16 +81,16 @@ class Corpus:
         skip_tokens = list(set(column_names_surface_form) - set(sql_keywords))
 
         if params.data_dir == 'processed_data_sparc_removefrom_test': # TODO: what is this for
-            all_output_seqs = []
+            all_output_tokens = []
             out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', \
                 'group_by', 'order_by', 'limit_value', 'desc', '>', 'distinct', 'avg', \
                 'and', 'having', '<', 'in', 'max', 'sum', 'asc', 'like', 'not', 'or', \
                 'min', 'intersect', 'except', '!=', 'union', 'between', '-', '+']
             for i in range(len(out_vocab_ordered)):
-                all_output_seqs.append(out_vocab_ordered[:i+1])
+                all_output_tokens.append(out_vocab_ordered[:i+1])
 
         self.output_vocab = DataVocab(
-            all_output_seqs,
+            all_output_tokens,
             os.path.join(params.data_dir, params.output_vocab_filename),
             params,
             data_type='output',
@@ -116,7 +116,7 @@ class Corpus:
             column_names_surface_form += [table_name.lower() for table_name in table_names_original]
 
             column_names_embedder_input = [column_name.split() for _, column_name in column_names]
-            column_names_embedder_input += [table_name.split() for _, table_name in table_names]
+            column_names_embedder_input += [table_name.split() for table_name in table_names]
 
         return database_schema_dict, column_names_surface_form, column_names_embedder_input
 
@@ -138,7 +138,7 @@ class Corpus:
             table_names = table_schema['table_names']
             table_names_original = table_schema['table_names_original']
 
-            for table_id, column_name in enumerate(column_names_original):
+            for table_id, column_name in column_names_original:
                 if table_id >= 0:
                     table_name = table_names_original[table_id]
                     column_name_surface_form = '{}.{}'.format(table_name,column_name)

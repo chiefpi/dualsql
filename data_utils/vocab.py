@@ -32,12 +32,17 @@ class Vocabulary:
             list of str, representing the unique word types in the vocabulary.
         """
         type_counts = {}
-
+        for sequence in sequences:
+            for token in sequence:
+                assert type(token) == str, str(token)
         for sequence in sequences:
             for token in sequence:
                 if not ignore_fn(token):
-                    if token not in type_counts:
-                        type_counts[token] = 0
+                    try:
+                        if token not in type_counts:
+                            type_counts[token] = 0
+                    except TypeError:
+                        print(token)
                     type_counts[token] += 1
 
         # Create sorted list of tokens, by their counts. Reverse so it is in order of
