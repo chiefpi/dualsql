@@ -1,131 +1,67 @@
-import torch
+import json
+
+def load_db_schema(db_schema_filename, remove_from=True):
+    """Reads schema for the preprocessed dataset.
+
+    Returns:
+        db2schema (dict int -> Schema)
+        schema_tokens (list of str): For query vocab skip tokens.
+        schema_tokens_sep (list of list of str): Actually used.
+    """
+
+    with open(db_schema_filename, 'r') as f:
+        db_schema = json.load(f)
+
+    db_schema_dict = {}
+    all_schema_tokens = []
+    all_schema_tokens_sep = []
+    for table_schema in db_schema:
+        db_id = table_schema['db_id']
+        column_names = table_schema['column_names']
+        column_names_original = table_schema['column_names_original']
+        table_names = table_schema['table_names']
+        table_names_original = table_schema['table_names_original']
+
+        schema_tokens = []
+        schema_tokens_sep = []
+        if remove_from:
+            schema_tokens += ['{}.{}'.format(table_names_original[table_id], column_name).lower()
+                if table_id >= 0 else column_name.lower()
+                for table_id, column_name in column_names_original]
+            schema_tokens += ['{}.*'.format(table_name.lower())
+                for table_name in table_names_original]
+
+            schema_tokens_sep += ['{} . {}'.format(table_names[table_id], column_name).split()
+                if table_id >= 0 else column_name.lower()
+                for table_id, column_name in column_names]
+            schema_tokens_sep += ['{} . *'.format(table_name).split()
+                for table_name in table_names]
+        else:
+            schema_tokens += [column_name.lower() for _, column_name in column_names_original]
+            schema_tokens += [table_name.lower() for table_name in table_names_original]
+
+            schema_tokens_sep += [column_name.split() for _, column_name in column_names]
+            schema_tokens_sep += [table_name.split() for table_name in table_names]
+
+        db_schema_dict[db_id] = Schema(schema_tokens_sep)
+        all_schema_tokens += schema_tokens
+        all_schema_tokens_sep += schema_tokens_sep
+
+    return db_schema_dict, all_schema_tokens, all_schema_tokens_sep
+
 
 class Schema:
-    # TODO: rewrite this
     """Contains a schema.
     
     Attributes:
-        column_name_surface (list of str): [table_name.]column_name
-        column_name_to_id (dict str -> int)
-        column_name_emb_input (list of str): [table_name . ]column_name
-        column_name_emb_input_to_id (dict str -> int)
+        schema_tokens_sep (list of list of str)
     """
-    def __init__(self, table_schema, simple=False):
-        if simple:
-            self.init_simple(table_schema)
-        else:
-            self.init(table_schema)
+    def __init__(self, schema_tokens_sep):
+        self.schema_tokens_sep = schema_tokens_sep
 
-    def init_simple(self, table_schema):
-        column_names = table_schema['column_names']
-        column_names_original = table_schema['column_names_original']
-        table_names = table_schema['table_names']
-        table_names_original = table_schema['table_names_original']
-        assert len(column_names) == len(column_names_original) and len(table_names) == len(table_names_original)
-
-        column_keep_index = []
-
-        self.column_name_surface = []
-        self.column_name_to_id = {}
-        for i, (table_id, col_name) in enumerate(column_names_original):
-            col_name = col_name.lower()
-            if col_name not in self.column_name_to_id:
-                self.column_name_surface.append(col_name)
-                self.column_name_to_id[col_name] = len(self.column_name_surface) - 1
-                column_keep_index.append(i)
-
-        column_keep_index_2 = []
-        for i, table_name in enumerate(table_names_original):
-            col_name = table_name.lower()
-            if col_name not in self.column_name_to_id:
-                self.column_name_surface.append(col_name)
-                self.column_name_to_id[col_name] = len(self.column_name_surface) - 1
-                column_keep_index_2.append(i)
-
-        self.column_name_emb_input = []
-        self.column_name_emb_input_to_id = {}
-        for i, (table_id, column_name) in enumerate(column_names):
-            column_name_embedder_input = column_name
-            if i in column_keep_index:
-                self.column_name_emb_input.append(column_name_embedder_input)
-                self.column_name_emb_input_to_id[column_name_embedder_input] = len(self.column_name_emb_input) - 1
-
-        for i, table_name in enumerate(table_names):
-            column_name_embedder_input = table_name
-            if i in column_keep_index_2:
-                self.column_name_emb_input.append(column_name_embedder_input)
-                self.column_name_emb_input_to_id[column_name_embedder_input] = len(self.column_name_emb_input) - 1
-
-        max_id_1 = max(v for k,v in self.column_name_to_id.items())
-        max_id_2 = max(v for k,v in self.column_name_emb_input_to_id.items())
-        assert (len(self.column_name_surface) - 1) == max_id_2 == max_id_1
-
-        self.num_col = len(self.column_name_surface)
-
-    def init(self, table_schema):
-        column_names = table_schema['column_names']
-        column_names_original = table_schema['column_names_original']
-        table_names = table_schema['table_names']
-        table_names_original = table_schema['table_names_original']
-        assert len(column_names) == len(column_names_original) \
-            and len(table_names) == len(table_names_original)
-
-        column_keep_index = []
-
-        self.column_name_surface = []
-        self.column_name_to_id = {}
-        for i, (table_id, column_name) in enumerate(column_names_original):
-            if table_id >= 0:
-                table_name = table_names_original[table_id]
-                col_name = '{}.{}'.format(table_name, column_name)
-            else:
-                col_name = column_name
-            col_name = col_name.lower()
-            if col_name not in self.column_name_to_id:
-                self.column_name_surface.append(col_name)
-                self.column_name_to_id[col_name] = len(self.column_name_surface) - 1
-                column_keep_index.append(i)
-
-        start_i = len(self.column_name_to_id)
-        for i, table_name in enumerate(table_names_original):
-            col_name = '{}.*'.format(table_name.lower())
-            self.column_name_surface.append(col_name)
-            self.column_name_to_id[col_name] = i + start_i
-
-        self.column_name_emb_input = []
-        self.column_name_emb_input_to_id = {}
-        for i, (table_id, column_name) in enumerate(column_names):
-            if table_id >= 0:
-                table_name = table_names[table_id]
-                column_name_embedder_input = table_name + ' . ' + column_name
-            else:
-                column_name_embedder_input = column_name
-            if i in column_keep_index:
-                self.column_name_emb_input.append(column_name_embedder_input)
-                self.column_name_emb_input_to_id[column_name_embedder_input] = len(self.column_name_emb_input) - 1
-
-        start_i = len(self.column_name_emb_input_to_id)
-        for i, table_name in enumerate(table_names):
-            column_name_embedder_input = table_name + ' . *'
-            self.column_name_emb_input.append(column_name_embedder_input)
-            self.column_name_emb_input_to_id[column_name_embedder_input] = i + start_i
-
-        assert len(self.column_name_surface) == \
-            len(self.column_name_to_id) == \
-            len(self.column_name_emb_input) == \
-            len(self.column_name_emb_input_to_id)
-
-        assert len(self.column_name_surface)-1 == \
-            max(v for k, v in self.column_name_to_id.items()) == \
-            max(v for k, v in self.column_name_emb_input_to_id.items())
-
-        self.num_col = len(self.column_name_surface)
+    def str2index(self, schema_vocab):
+        self.schema_tokens_sep = [[schema_vocab.token2id(t) for t in token_sep]
+            for token_sep in self.schema_tokens_sep]
 
     def __len__(self):
-        return self.num_col
-
-    def in_vocab(self, column_name, surface_form=False):
-        if surface_form:
-            return column_name in self.column_name_to_id
-        else:
-            return column_name in self.column_name_emb_input_to_id
+        return len(self.schema_tokens_sep)

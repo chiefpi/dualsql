@@ -5,9 +5,41 @@ from data_utils.schema import Schema
 from data_utils.turn import Turn
 from data_utils.interaction import Interaction
 
+def collapse_list(lst):
+    """Collapses a list of list into a single list."""
+    return [i for l in lst for i in l]
 
-def load_function(db_schema=None, remove_from=True):
-    def fn(interaction_example):
+class DatasetSplit:
+    """Stores a split of the dataset.
+
+    Attributes:
+        interactions (list of Interaction): Stores the interactions in the split.
+    """
+    def __init__(self, processed_filename, raw_filename, db2schema):
+        if os.path.exists(processed_filename):
+            print("Loading preprocessed data from " + processed_filename)
+            with open(processed_filename, 'rb') as infile:
+                self.interactions = pickle.load(infile)
+        else:
+            print("Loading raw data from " + raw_filename +
+                " and writing to " + processed_filename)
+
+            with open(raw_filename, 'rb') as infile:
+                examples_from_file = pickle.load(infile)
+                assert isinstance(examples_from_file, list), raw_filename + \
+                    " does not contain a list of interactions"
+
+            self.interactions = []
+            for example in examples_from_file:
+                interaction, keep = self.load_interaction(example, db2schema)
+                if keep:
+                    self.interactions.append(interaction)
+
+            print("Loaded " + str(len(self.interactions)) + " interactions")
+            with open(processed_filename, 'wb') as outfile:
+                pickle.dump(self.interactions, outfile)
+
+    def load_interaction(self, interaction_example, db2schema):
         """Loads an example to Interaction.
 
         Returns:
@@ -19,20 +51,18 @@ def load_function(db_schema=None, remove_from=True):
 
         database_id = interaction_example['database_id']
         interaction_id = interaction_example['interaction_id']
-        identifier = str(database_id) + '/' + str(interaction_id)
+        identifier = '{}/{}'.format(database_id, interaction_id)
 
-        schema = None
-        if db_schema:
-            schema = Schema(db_schema[database_id], simple=not remove_from)
+        schema = db2schema[database_id]
 
         keep = False
         turns = []
 
         for raw_turn in raw_turns:
             turn = Turn(raw_turn)
-            keep_turns = turn.keep
-            assert not schema or keep_turns # if schema, then keep
-            if keep_turns:
+            keep_turn = turn.keep
+            assert not schema or keep_turn # if schema, then keep
+            if keep_turn:
                 keep = True
                 turns.append(turn)
 
@@ -40,47 +70,20 @@ def load_function(db_schema=None, remove_from=True):
 
         return interaction, keep
 
-    return fn
+    def __len__(self):
+        """Returns the number of turns in a data split."""
+        return sum([len(i) for i in self.interactions])
 
-
-class DatasetSplit:
-    """Stores a split of the dataset.
-
-    Attributes:
-        examples (list of Interaction): Stores the examples in the split.
-    """
-    def __init__(self, processed_filename, raw_filename, load_function):
-        if os.path.exists(processed_filename):
-            print("Loading preprocessed data from " + processed_filename)
-            with open(processed_filename, 'rb') as infile:
-                self.examples = pickle.load(infile)
-        else:
-            print("Loading raw data from " + raw_filename +
-                " and writing to " + processed_filename)
-
-            with open(raw_filename, 'rb') as infile:
-                examples_from_file = pickle.load(infile)
-                assert isinstance(examples_from_file, list), raw_filename + \
-                    " does not contain a list of examples"
-
-            self.examples = []
-            for example in examples_from_file:
-                interaction, keep = load_function(example)
-                if keep:
-                    self.examples.append(interaction)
-
-            print("Loaded " + str(len(self.examples)) + " examples")
-            with open(processed_filename, 'wb') as outfile:
-                pickle.dump(self.examples, outfile)
-
-    def get_ex_properties(self, function):
-        """Applies some function to the examples in the dataset.
-
-        Args:
-            function: (lambda Interaction -> T): Function to apply to all
-                examples.
-
-        Returns
-            list of the return value of the function
+    def get_all_utterances(self):
         """
-        return [function(ex) for ex in self.examples]
+        Returns:
+            list of list of str
+        """
+        return collapse_list([i.utter_seqs() for i in self.interactions])
+
+    def get_all_queries(self):
+        return collapse_list([i.utter_seqs() for i in self.interactions])
+
+    def str2index(self, schema_vocab, utter_vocab, query_vocab):
+        for interaction in self.interactions:
+            interaction.str2index(schema_vocab, utter_vocab, query_vocab)

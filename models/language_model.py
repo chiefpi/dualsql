@@ -37,10 +37,10 @@ class LanguageModel(nn.Module):
             dropout=(dropout if num_layers > 1 else 0))
         self.decoder = nn.Linear(hidden_dim, len(vocab))
 
-        if tie_weights:
-            if hidden_dim != emb_dim:
-                raise ValueError('When using the tied flag, hidden_dim must be equal to emb_dim')
-            self.decoder.weight = self.embedder.weight
+        # if tie_weights:
+        #     if hidden_dim != emb_dim:
+        #         raise ValueError('When using the tied flag, hidden_dim must be equal to emb_dim')
+        #     self.decoder.weight = self.embedder.weight
 
         self.init_weights()
 
@@ -54,7 +54,7 @@ class LanguageModel(nn.Module):
             weight.new_zeros(self.num_layers, batch_size, self.hidden_dim))
 
     def forward(self, sentences):
-        emb = self.dropout(self.embedder(sentences)) # max_len x bsize x emb_dim
+        emb = self.dropout(self.embedder(sentences).unsqueeze(1)) # max_len x bsize x emb_dim
         output, _ = self.rnn(emb) # max_len x bsize x hidden_dim
         decoded = self.decoder(self.dropout(output)) # max_len x bsize x vocab_size
         return F.log_softmax(decoded, dim=-1)

@@ -1,23 +1,10 @@
 CUDA_VISIBLE_DEVICES=0 python3 scripts/run_lm.py \
-    --dataset="sparc" \
-    --input_key="utterance" \
-    --state_positional_embeddings=1 \
-    --discourse_level_lstm=1 \
-    --use_utterance_attention=1 \
-    --use_query_attention=1 \
-    --use_schema_attention=1 \
-    --use_bert=1 \
-    --bert_type_abb=uS \
-    --fine_tune_bert=1 \
-    --use_schema_self_attention=1 \
-    --use_schema_encoder_2=1 \
-    --interaction_level=1 \
-    --reweight_batch=1 \
-    --freeze=1 \
-    --train=1 \
-    --logdir=$LOGDIR \
-    --evaluate=1 \
-    --evaluate_split="valid"
-CUDA_VISIBLE_DEVICES=0 python3 scripts/run_qg.py
-CUDA_VISIBLE_DEVICES=0 python3 scripts/run_sp.py
-CUDA_VISIBLE_DEVICES=0 python3 scripts/run_dual.py
+    --primal \
+    --train \
+    --evaluate \
+    --remove_from \
+    --evaluate_split="dev" \
+    --task_name="lm-p"
+# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_qg.py
+# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_sp.py
+# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_dual.py

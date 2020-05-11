@@ -30,36 +30,19 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def get_params():
     parser = argparse.ArgumentParser()
     # Data
-    parser.add_argument('--input_vocab_filename', type=str,
-        default='input_vocabulary.pkl')
-    parser.add_argument('--output_vocab_filename', type=str,
-        default='output_vocabulary.pkl')
     parser.add_argument('--data_dir', type=str,
         default='processed_sparc_data_removefrom')
-
-    parser.add_argument('--raw_train_filename', type=str,
-        default='data/sparc_data_removefrom/train.pkl')
-    parser.add_argument('--raw_valid_filename', type=str,
-        default='data/sparc_data_removefrom/dev.pkl')
-    parser.add_argument('--raw_test_filename', type=str,
-        default='data/sparc_data_removefrom/test.pkl')
-    
-    parser.add_argument('--processed_train_filename', type=str,
-        default='train.pkl')
-    parser.add_argument('--processed_dev_filename', type=str,
-        default='dev.pkl')
-    parser.add_argument('--processed_valid_filename', type=str,
-        default='validation.pkl')
-    parser.add_argument('--processed_test_filename', type=str,
-        default='test.pkl')
+    parser.add_argument('--raw_dara_dir', type=str,
+        default='data/sparc_data_removefrom')
+    parser.add_argument('--remove_from', action='store_true')
 
     parser.add_argument('--database_schema_filename', type=str,
-        default='data/sparc_data_removefrom/tables.json')
+        default='tables.json')
     parser.add_argument('--embedding_filename', type=str,
         default='glove/glove.840B.300d.txt')
 
     # Model
-    parser.add_argument('--primal', type=bool, default=False)
+    parser.add_argument('--primal', action='store_true')
     parser.add_argument('--emb_dim', type=int, default=300)
     parser.add_argument('--hidden_dim', type=int, default=300)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -76,27 +59,15 @@ def get_params():
     parser.add_argument('--train_eval_size', type=int, default=20)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
-    parser.add_argument('--log_name', type=str, 
+    parser.add_argument('--task_name', type=str, 
         default='lm')
-    parser.add_argument('--save_file', type=str,
-        default='model.pt')
 
     args = parser.parse_args()
-
-    if not os.path.exists(args.log_dir):
-        os.makedirs(args.log_dir)
-
-    if args.train:
-        args_file = os.path.join(args.log_dir, 'args.log')
-        if os.path.exists(args_file):
-            raise ValueError('Warning: arguments already exist in {}'.format(args_file))
-        with open(args_file, 'w') as infile:
-            infile.write(str(args))
 
     return args
 
 
-def train_batches(model, batches, optimizer, criterion, params):
+def train_epoch(model, batches, optimizer, criterion, params):
     model.train()
     epoch_loss = 0.
     for batch in batches:
@@ -131,17 +102,18 @@ def eval_turns(model, turns, criterion, params):
 def train(model, data, params):
     """Trains a language model on a corpus."""
 
-    log = Logger(20, params.log_name)
+    log = Logger(20, params.task_name)
     num_train = corpus.num_turns(data.train_data)
-    log.info('Total number of training turns: {:d}' % num_train)
+    log.info('Total number of training turns: {:d}'.format(num_train))
+    print('Total number of training turns: {:d}'.format(num_train))
 
     train_batches = data.get_turn_batches(params.batch_size)
     # evaluation samples
     train_samples = data.get_random_turns(params.train_eval_size)
     valid_samples = data.get_all_turns(data.valid_data)
 
-    log.info('Number of steps per epoch: {:d}' % len(train_batches))
-    log.info('Batch size: {:d}' % params.batch_size)
+    log.info('Number of steps per epoch: {:d}'.format(len(train_batches)))
+    log.info('Batch size: {:d}'.format(params.batch_size))
     assert params.batch_size == 1 # TODO
 
     criterion = nn.NLLLoss()
@@ -149,8 +121,8 @@ def train(model, data, params):
     best_valid_loss = None
     # Loop over epochs.
     for epoch in range(params.epochs):
-        log.info('Epoch: {:d}' % epoch)
-        epoch_loss = train_batches(
+        log.info('Epoch: {:d}'.format(epoch))
+        epoch_loss = train_epoch(
             model, train_batches, optimizer, criterion, params)
         log.info('Train epoch loss: {:.3f}'.format(epoch_loss/num_train))
 
@@ -166,7 +138,7 @@ def train(model, data, params):
 
         # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or valid_loss < best_valid_loss:
-            model.save(os.path.join(params.log_dir, params.save_file))
+            model.save(os.path.join('saved_models', '{}.pt'.format(params.task_name)))
             best_val_loss = valid_loss
 
     log.info('Finished training!')
@@ -208,15 +180,7 @@ if __name__ == '__main__':
     print('=====================Model Parameters=====================')
     for name, param in model.named_parameters():
         print(name, param.requires_grad, param.is_cuda, param.size())
-        assert param.is_cuda
-
-    model.build_optim()
-
-    print('=====================Parameters in Optimizer==============')
-    for param_group in model.trainer.param_groups:
-        print(param_group.keys())
-        for param in param_group['params']:
-            print(param.size())
+        # assert param.is_cuda
 
     sys.stdout.flush()
 

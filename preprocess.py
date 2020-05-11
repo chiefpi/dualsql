@@ -8,7 +8,7 @@ import sqlparse
 from postprocess_eval import get_candidate_tables
 
 
-def write_interaction(interaction_list,split,output_dir):
+def write_interaction(interaction_list, split, output_dir):
     json_split = os.path.join(output_dir,split+'.json')
     pkl_split = os.path.join(output_dir,split+'.pkl')
 

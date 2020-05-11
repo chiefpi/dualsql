@@ -27,3 +27,8 @@ class Interaction:
         # TODO
         self.max_utter_length = max_utter_length
         self.max_query_length = max_query_length
+
+    def str2index(self, schema_vocab, utter_vocab, query_vocab):
+        self.schema.str2index(schema_vocab)
+        for turn in self.turns:
+            turn.str2index(utter_vocab, query_vocab)

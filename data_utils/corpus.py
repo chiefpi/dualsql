@@ -5,8 +5,9 @@ import random
 import json
 import math
 
-from data_utils.split import DatasetSplit, load_function
-from data_utils.data_vocab import DataVocab
+from data_utils.split import DatasetSplit
+from data_utils.vocab import Vocab
+from data_utils.schema import load_db_schema
 
 
 class Corpus:
@@ -15,60 +16,31 @@ class Corpus:
     Attributes:
         train_data (DatasetSplit)
         valid_data (DatasetSplit)
-        input_vocab (DataVocab): utterance vocabulary
-        output_vocab (DataVocab): query vocabulary
-        output_vocab_schema (DataVocab): schema vocabulary
+        schema_vocab (Vocab)
+        utter_vocab (Vocab)
+        query_vocab (Vocab)
     """
 
     def __init__(self, params):
         if not os.path.exists(params.data_dir):
             os.mkdir(params.data_dir)
 
-        database_schema = None
-        remove_from = 'removefrom' in params.data_dir
-        if params.database_schema_filename:
-            if remove_from:
-                database_schema, column_names_surface_form, column_names_embedder_input = \
-                    self.read_database_schema(params.database_schema_filename)
-            else:
-                database_schema, column_names_surface_form, column_names_embedder_input = \
-                    self.read_database_schema_simple(params.database_schema_filename)
-
-        # interaction load function
-        int_load_function = load_function(database_schema, remove_from)
-
-        def collapse_list(lst):
-            """Collapses a list of list into a single list."""
-            return [j for i in lst for j in i]
+        db2schema, all_schema_tokens, all_schema_tokens_sep = load_db_schema(
+            os.path.join(params.raw_data_dir, params.db_schema_filename),
+            params.remove_from)
 
         self.train_data = DatasetSplit(
-            os.path.join(params.data_dir, params.processed_train_filename),
-            params.raw_train_filename,
-            int_load_function)
+            os.path.join(params.data_dir, 'train.pkl'),
+            os.path.join(params.raw_data_dir, 'train.pkl'),
+            db2schema)
+
         self.valid_data = DatasetSplit(
-            os.path.join(params.data_dir, params.processed_valid_filename),
-            params.raw_valid_filename,
-            int_load_function)
+            os.path.join(params.data_dir, 'valid.pkl'),
+            os.path.join(params.raw_data_dir, 'valid.pkl'),
+            db2schema)
 
-        train_input_tokens = collapse_list(self.train_data.get_ex_properties(lambda i: i.utter_seqs()))
-        valid_input_tokens = collapse_list(self.valid_data.get_ex_properties(lambda i: i.utter_seqs()))
-        all_input_tokens = train_input_tokens + valid_input_tokens
-
-        self.input_vocab = DataVocab(
-            all_input_tokens,
-            os.path.join(params.data_dir, params.input_vocab_filename),
-            params,
-            data_type='input')
-
-        self.output_vocab_schema = DataVocab(
-            column_names_embedder_input,
-            os.path.join(params.data_dir, 'schema_'+params.output_vocab_filename),
-            params,
-            data_type='schema')
-
-        train_output_tokens = collapse_list(self.train_data.get_ex_properties(lambda i: i.query_seqs()))
-        valid_output_tokens = collapse_list(self.valid_data.get_ex_properties(lambda i: i.query_seqs()))
-        all_output_tokens = train_output_tokens + valid_output_tokens
+        all_utter_seqs = self.train_data.get_all_utterances() + self.valid_data.get_all_utterances()
+        all_query_seqs = self.train_data.get_all_queries() + self.valid_data.get_all_queries()
 
         sql_keywords = ['.', 't1', 't2', '=', 'select', 'as', 'join', 'on', ')', '(', \
             'where', 't3', 'by', ',', 'group', 'distinct', 't4', 'and', 'limit', 'desc', \
@@ -77,148 +49,77 @@ class Corpus:
             't7', '+', '/', 'count', 'from', 'value', 'order', \
             'group_by', 'order_by', 'limit_value', '!=']
 
-        # skip column_names_surface_form and keep sql_keywords
-        skip_tokens = list(set(column_names_surface_form) - set(sql_keywords))
+        # Build vocabularies
+        self.schema_vocab = Vocab(all_schema_tokens_sep, data_type='schema')
+        self.utter_vocab = Vocab(all_utter_seqs, data_type='utter')
+        # Skip non-keywords
+        skip_tokens = list(set(all_schema_tokens) - set(sql_keywords))
+        self.query_vocab = Vocab(all_query_seqs, data_type='query', skip=skip_tokens)
 
-        if params.data_dir == 'processed_data_sparc_removefrom_test': # TODO: what is this for
-            all_output_tokens = []
-            out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', \
-                'group_by', 'order_by', 'limit_value', 'desc', '>', 'distinct', 'avg', \
-                'and', 'having', '<', 'in', 'max', 'sum', 'asc', 'like', 'not', 'or', \
-                'min', 'intersect', 'except', '!=', 'union', 'between', '-', '+']
-            for i in range(len(out_vocab_ordered)):
-                all_output_tokens.append(out_vocab_ordered[:i+1])
-
-        self.output_vocab = DataVocab(
-            all_output_tokens,
-            os.path.join(params.data_dir, params.output_vocab_filename),
-            params,
-            data_type='output',
-            skip=skip_tokens)
-
-    def read_database_schema_simple(self, database_schema_filename):
-        """Reads schema for original dataset."""
-
-        with open(database_schema_filename, 'r') as f:
-            database_schema = json.load(f)
-
-        database_schema_dict = {}
-        for table_schema in database_schema:
-            db_id = table_schema['db_id']
-            database_schema_dict[db_id] = table_schema
-
-            column_names = table_schema['column_names']
-            column_names_original = table_schema['column_names_original']
-            table_names = table_schema['table_names']
-            table_names_original = table_schema['table_names_original']
-
-            column_names_surface_form = [column_name.lower() for _, column_name in column_names_original]
-            column_names_surface_form += [table_name.lower() for table_name in table_names_original]
-
-            column_names_embedder_input = [column_name.split() for _, column_name in column_names]
-            column_names_embedder_input += [table_name.split() for table_name in table_names]
-
-        return database_schema_dict, column_names_surface_form, column_names_embedder_input
-
-    def read_database_schema(self, database_schema_filename):
-        """Reads schema for preprocessed dataset."""
-
-        with open(database_schema_filename, 'r') as f:
-            database_schema = json.load(f)
-
-        database_schema_dict = {}
-        column_names_surface_form = []
-        column_names_embedder_input = []
-        for table_schema in database_schema:
-            db_id = table_schema['db_id']
-            database_schema_dict[db_id] = table_schema
-
-            column_names = table_schema['column_names']
-            column_names_original = table_schema['column_names_original']
-            table_names = table_schema['table_names']
-            table_names_original = table_schema['table_names_original']
-
-            for table_id, column_name in column_names_original:
-                if table_id >= 0:
-                    table_name = table_names_original[table_id]
-                    column_name_surface_form = '{}.{}'.format(table_name,column_name)
-                else:
-                    column_name_surface_form = column_name
-                column_names_surface_form.append(column_name_surface_form.lower())
-
-            # also add table_name.*
-            for table_name in table_names_original:
-                column_names_surface_form.append('{}.*'.format(table_name.lower()))
-
-            for table_id, column_name in column_names:
-                if table_id >= 0:
-                    table_name = table_names[table_id]
-                    column_name_embedder_input = table_name + ' . ' + column_name
-                else:
-                    column_name_embedder_input = column_name
-                column_names_embedder_input.append(column_name_embedder_input.split())
-
-            for table_name in table_names:
-                column_name_embedder_input = table_name + ' . *'
-                column_names_embedder_input.append(column_name_embedder_input.split())
-
-        return database_schema_dict, column_names_surface_form, column_names_embedder_input
+        self.train_data.str2index()
+        self.valid_data.str2index()
+        # if params.data_dir == 'processed_data_sparc_removefrom_test': # TODO: what is this for
+        #     all_query_seqs = []
+        #     out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', \
+        #         'group_by', 'order_by', 'limit_value', 'desc', '>', 'distinct', 'avg', \
+        #         'and', 'having', '<', 'in', 'max', 'sum', 'asc', 'like', 'not', 'or', \
+        #         'min', 'intersect', 'except', '!=', 'union', 'between', '-', '+']
+        #     for i in range(len(out_vocab_ordered)):
+        #         all_query_seqs.append(out_vocab_ordered[:i+1])
 
     def get_all_turns(
             self,
             dataset,
-            max_input_length=math.inf,
-            max_output_length=math.inf):
+            max_utter_len=math.inf,
+            max_query_len=math.inf):
         """Gets all turns in a dataset.
         
         Returns:
             list of Turn
         """
 
-        return [turn for interaction in dataset.examples
+        return [turn for interaction in dataset.interactions
             for turn in interaction.turns
-            if turn.length_valid(max_input_length, max_output_length)]
+            if turn.len_valid(max_utter_len, max_query_len)]
 
     def get_all_interactions(
             self,
             dataset,
-            max_interaction_length=math.inf,
-            max_input_length=math.inf,
-            max_output_length=math.inf,
-            sorted_by_length=False):
+            max_inter_len=math.inf,
+            max_utter_len=math.inf,
+            max_query_len=math.inf,
+            sorted_by_len=False):
         """Gets all interactions in a dataset that fit the criteria.
 
         Args:
             dataset (DatasetSplit): The dataset to use.
-            max_interaction_length (int): Maximum interaction length to keep.
-            max_input_length (int): Maximum input sequence length to keep.
-            max_output_length (int): Maximum output sequence length to keep.
-            sorted_by_length (bool): Whether to sort the examples by interaction length.
+            max_inter_len (int): Maximum interaction len to keep.
+            max_utter_len (int): Maximum utter sequence len to keep.
+            max_query_len (int): Maximum query sequence len to keep.
+            sorted_by_len (bool): Whether to sort the interactions by interaction len.
 
         Returns:
             list of Interaction
         """
-        interactions = [interaction for interaction in dataset.examples
-            if len(interaction) <= max_interaction_length]
+        interactions = [interaction for interaction in dataset.interactions
+            if len(interaction) <= max_inter_len]
         for interaction in interactions:
-            interaction.set_valid_length(max_input_length, max_output_length)
-        if sorted_by_length:
-            return sorted(interactions, key=len, reverse=True) # desc
-        else:
-            return interactions
+            interaction.set_valid_len(max_utter_len, max_query_len) # TODO
 
-    def get_turn_batches(
+        return sorted(interactions, key=len, reverse=True) if sorted_by_len else interactions
+
+    def get_turn_batches( # TODO
             self,
             batch_size,
-            max_input_length=math.inf,
-            max_output_length=math.inf,
+            max_utter_len=math.inf,
+            max_query_len=math.inf,
             randomize=True):
         """Gets batches of turns in the data.
 
         Args:
             batch_size (int): Batch size to use.
-            max_input_length (int): Maximum length of input to keep.
-            max_output_length (int): Maximum length of output to use.
+            max_utter_len (int): Maximum len of utter to keep.
+            max_query_len (int): Maximum len of query to use.
             randomize (bool): Whether to randomize the ordering.
 
         Returns:
@@ -226,8 +127,8 @@ class Corpus:
         """
         turns = self.get_all_turns(
             self.train_data,
-            max_input_length,
-            max_output_length)
+            max_utter_len,
+            max_query_len)
         if randomize:
             random.shuffle(turns)
 
@@ -236,25 +137,25 @@ class Corpus:
 
     def get_interaction_items(
             self,
-            max_interaction_length=math.inf,
-            max_input_length=math.inf,
-            max_output_length=math.inf,
+            max_inter_len=math.inf,
+            max_utter_len=math.inf,
+            max_query_len=math.inf,
             randomize=True):
         """Gets batches of interactions in the data.
 
         Args:
             batch_size (int): Batch size to use.
-            max_interaction_length (int): Maximum length of interaction to keep
-            max_input_length (int): Maximum length of input to keep.
-            max_output_length (int): Maximum length of output to keep.
+            max_inter_len (int): Maximum len of interaction to keep
+            max_utter_len (int): Maximum len of utter to keep.
+            max_query_len (int): Maximum len of query to keep.
             randomize (bool): Whether to randomize the ordering.
         """
         interactions = self.get_all_interactions(
             self.train_data,
-            max_interaction_length,
-            max_input_length,
-            max_output_length,
-            sorted_by_length=not randomize)
+            max_inter_len,
+            max_utter_len,
+            max_query_len,
+            sorted_by_len=not randomize)
         if randomize:
             random.shuffle(interactions)
 
@@ -263,19 +164,19 @@ class Corpus:
     def get_random_turns(
             self,
             num_samples,
-            max_input_length=math.inf,
-            max_output_length=math.inf):
+            max_utter_len=math.inf,
+            max_query_len=math.inf):
         """Gets a random selection of turns in the data.
 
         Args:
             num_samples (bool): Number of random turns to get.
-            max_input_length (int): Limit of input length.
-            max_output_length (int): Limit on output length.
+            max_utter_len (int): Limit of utter len.
+            max_query_len (int): Limit on query len.
         """
         items = self.get_all_turns(
             self.train_data,
-            max_input_length,
-            max_output_length)
+            max_utter_len,
+            max_query_len)
         random.shuffle(items)
 
         return items[:num_samples]
@@ -283,30 +184,21 @@ class Corpus:
     def get_random_interactions(
             self,
             num_samples,
-            max_interaction_length=math.inf,
-            max_input_length=math.inf,
-            max_output_length=math.inf):
+            max_inter_len=math.inf,
+            max_utter_len=math.inf,
+            max_query_len=math.inf):
         """Gets a random selection of interactions in the data.
 
         Args:
             num_samples (bool): Number of random interactions to get.
-            max_input_length (int): Limit of input length.
-            max_output_length (int): Limit on output length.
+            max_utter_len (int): Limit of utter len.
+            max_query_len (int): Limit on query len.
         """
         items = self.get_all_interactions(
             self.train_data,
-            max_interaction_length,
-            max_input_length,
-            max_output_length)
+            max_inter_len,
+            max_utter_len,
+            max_query_len)
         random.shuffle(items)
 
         return items[:num_samples]
-
-
-def num_turns(dataset):
-    """Returns the total number of turns in the dataset.
-    
-    Args:
-        dataset (DatasetSplit)
-    """
-    return sum([len(interaction) for interaction in dataset.examples])
