@@ -52,11 +52,10 @@ def get_params():
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
     parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--lr', type=float, default=20)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--clip', type=float, default=0.25)
-    parser.add_argument('--epochs', type=int, default=40)
+    parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--train_eval_size', type=int, default=20)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
     parser.add_argument('--save_dir', type=str, default='saved_models')
@@ -123,18 +122,22 @@ def train(model, data, params):
     # Loop over epochs.
     for epoch in range(params.epochs):
         log.info('Epoch: {:d}'.format(epoch))
+        print('Epoch: {:d}'.format(epoch))
+
         train_loss = train_epoch(
             model, train_batches, optimizer, criterion, params)
         log.info('Training loss: {:.3f}'.format(train_loss))
+        print('Training loss: {:.3f}'.format(train_loss))
 
-        valid_loss = eval_samples(
-            model, valid_batches, criterion, params)
+        valid_loss = eval_samples(model, valid_batches, criterion, params)
         log.info('Validation loss: {:.3f} | ppl: {:.3f}'.format(
             valid_loss, math.exp(valid_loss)))
+        print('Validation loss: {:.3f} | ppl: {:.3f}'.format(
+            valid_loss, math.exp(valid_loss)))
 
-        if not best_val_loss or valid_loss < best_valid_loss:
+        if not best_valid_loss or valid_loss < best_valid_loss:
             model.save(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
-            best_val_loss = valid_loss
+            best_valid_loss = valid_loss
 
     log.info('Finished training!')
     print('Finished training!')

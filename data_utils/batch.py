@@ -63,7 +63,7 @@ def get_seq_batches(
     Returns:
         list of list of torch.tensor
     """
-    seqs = dataset.get_all_utterances() if primal else self.train_data.get_all_queries()
+    seqs = dataset.get_all_utterances() if primal else dataset.get_all_queries()
     if randomize:
         random.shuffle(seqs)
 
