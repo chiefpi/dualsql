@@ -9,7 +9,7 @@ lm = LanguageModel(
     dropout=0.5,
     tie_weights=True)
 
-sentences = torch.LongTensor([[2,21,34,999],[0,1,2,3]])
+sentences = torch.LongTensor([[2,21,34,999],[0,1,2,3]]).t() # 4x2
 print(sentences.size())
 lens = torch.LongTensor([4,2])
 print(lm.sentence_log_prob(sentences, lens))

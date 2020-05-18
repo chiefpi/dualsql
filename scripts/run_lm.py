@@ -11,10 +11,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn.utils.rnn import pad_sequence
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from model_utils.logger import Logger
-from data_utils import corpus
+from data_utils.batch import get_seq_batches
 from data_utils.corpus import Corpus
 from models.language_model import LanguageModel
 
@@ -32,11 +33,11 @@ def get_params():
     # Data
     parser.add_argument('--data_dir', type=str,
         default='processed_sparc_data_removefrom')
-    parser.add_argument('--raw_dara_dir', type=str,
+    parser.add_argument('--raw_data_dir', type=str,
         default='data/sparc_data_removefrom')
     parser.add_argument('--remove_from', action='store_true')
 
-    parser.add_argument('--database_schema_filename', type=str,
+    parser.add_argument('--db_schema_filename', type=str,
         default='tables.json')
     parser.add_argument('--embedding_filename', type=str,
         default='glove/glove.840B.300d.txt')
@@ -46,8 +47,7 @@ def get_params():
     parser.add_argument('--emb_dim', type=int, default=300)
     parser.add_argument('--hidden_dim', type=int, default=300)
     parser.add_argument('--num_layers', type=int, default=2)
-    parser.add_argument('--tied', action='store_true',
-        help='tie the word embedding and softmax weights')
+    parser.add_argument('--tie_weights', action='store_true')
     # Training
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
@@ -55,12 +55,12 @@ def get_params():
     parser.add_argument('--lr', type=float, default=20)
     parser.add_argument('--clip', type=float, default=0.25)
     parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--train_eval_size', type=int, default=20)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
-    parser.add_argument('--task_name', type=str, 
-        default='lm')
+    parser.add_argument('--save_dir', type=str, default='saved_models')
+    parser.add_argument('--task_name', type=str, default='lm')
 
     args = parser.parse_args()
 
@@ -71,12 +71,14 @@ def train_epoch(model, batches, optimizer, criterion, params):
     model.train()
     epoch_loss = 0.
     for batch in batches:
+        # Forward
         optimizer.zero_grad()
-        for turn in batch:
-            sent = turn.utter_seq if params.primal else turn.query_seq
-            output = model(sent[:-1])
-            loss = criterion(output, sent[1:])
-            loss.backward() # TODO: batch loss
+        sents = pad_sequence(batch)
+
+        output = model(sents[:-1])
+        vocab_size = output.size(-1)
+        loss = criterion(output.view(-1, vocab_size), sents[1:].view(-1))
+        loss.backward()
 
         # Gradient clip
         nn.utils.clip_grad_norm_(model.parameters(), params.clip)
@@ -84,37 +86,36 @@ def train_epoch(model, batches, optimizer, criterion, params):
         epoch_loss += loss.item()
         optimizer.step()
 
-    return epoch_loss
+    return epoch_loss / len(batches)
 
 
-def eval_turns(model, turns, criterion, params):
+def eval_samples(model, batches, criterion, params):
     model.eval()
     total_loss = 0.
-    with torch.no_grad():
-        for turn in turns:
-            sent = turn.utter_seq if params.primal else turn.query_seq
-            output = model(sent[:-1])
-            total_loss += criterion(output, sent[1:]).item()
+    for batch in batches:
+        sents = pad_sequence(batch)
 
-    return total_loss / len(turns)
+        output = model(sents[:-1])
+        vocab_size = output.size(-1)
+        loss = criterion(output.view(-1, vocab_size), sents[1:].view(-1))
+
+        total_loss += loss.item()
+
+    return total_loss / len(batches)
     
 
 def train(model, data, params):
     """Trains a language model on a corpus."""
 
     log = Logger(20, params.task_name)
-    num_train = corpus.num_turns(data.train_data)
-    log.info('Total number of training turns: {:d}'.format(num_train))
-    print('Total number of training turns: {:d}'.format(num_train))
 
-    train_batches = data.get_turn_batches(params.batch_size)
-    # evaluation samples
-    train_samples = data.get_random_turns(params.train_eval_size)
-    valid_samples = data.get_all_turns(data.valid_data)
+    train_batches = get_seq_batches(data.train_data, params.batch_size, params.primal)
+    valid_batches = get_seq_batches(data.valid_data, params.batch_size, params.primal)
 
     log.info('Number of steps per epoch: {:d}'.format(len(train_batches)))
+    print('Number of steps per epoch: {:d}'.format(len(train_batches)))
     log.info('Batch size: {:d}'.format(params.batch_size))
-    assert params.batch_size == 1 # TODO
+    print('Batch size: {:d}'.format(params.batch_size))
 
     criterion = nn.NLLLoss()
     optimizer = optim.Adam(model.parameters(), lr=params.lr)
@@ -122,26 +123,21 @@ def train(model, data, params):
     # Loop over epochs.
     for epoch in range(params.epochs):
         log.info('Epoch: {:d}'.format(epoch))
-        epoch_loss = train_epoch(
+        train_loss = train_epoch(
             model, train_batches, optimizer, criterion, params)
-        log.info('Train epoch loss: {:.3f}'.format(epoch_loss/num_train))
+        log.info('Training loss: {:.3f}'.format(train_loss))
 
-        train_eval_loss = eval_turns(
-            model, train_samples, criterion, params)
-        log.info('Train evaluation loss: {:.3f} | ppl: {:.3f}'.format(
-            train_eval_loss, math.exp(train_eval_loss)))
-
-        valid_loss = eval_turns(
-            model, valid_samples, criterion, params)
+        valid_loss = eval_samples(
+            model, valid_batches, criterion, params)
         log.info('Validation loss: {:.3f} | ppl: {:.3f}'.format(
             valid_loss, math.exp(valid_loss)))
 
-        # Save the model if the validation loss is the best we've seen so far.
         if not best_val_loss or valid_loss < best_valid_loss:
-            model.save(os.path.join('saved_models', '{}.pt'.format(params.task_name)))
+            model.save(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
             best_val_loss = valid_loss
 
     log.info('Finished training!')
+    print('Finished training!')
 
 
 def evaluate(model, data, params, split):
@@ -153,12 +149,12 @@ def evaluate(model, data, params, split):
         params (namespace)
         split (str): Split to evaluate (valid, dev or test).
     """
-    model.load(os.path.join(params.log_dir, params.language_model_file))
+    model.load(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
     data_split = eval('data.{}_data'.format(split))
-    examples = data.get_all_turns(data_split)
+    batches = get_seq_batches(data_split, params.batch_size, params.primal)
     criterion = nn.NLLLoss()
     
-    eval_loss = eval_turns(model, examples, criterion, params)
+    eval_loss = eval_samples(model, batches, criterion, params)
     print('Evaluation loss: {:.3f} | ppl: {:.3f}'.format(
         eval_loss, math.exp(eval_loss)))
 
@@ -167,15 +163,14 @@ if __name__ == '__main__':
     params = get_params()
 
     data = Corpus(params)
-    vocab = data.input_vocab if params.primal else data.output_vocab
+    vocab = data.utter_vocab if params.primal else data.query_vocab
     model = LanguageModel(
-        vocab=vocab,
-        emb_file=params.embedding_filename,
-        hidden_dim=params.hidden_dim,
-        num_layers=params.num_layers,
-        freeze=params.primal,
+        len(vocab),
+        params.emb_dim,
+        params.hidden_dim,
+        params.num_layers,
         dropout=params.dropout,
-        tie_weights=params.tied).to(device)
+        tie_weights=params.tie_weights).to(device)
 
     print('=====================Model Parameters=====================')
     for name, param in model.named_parameters():

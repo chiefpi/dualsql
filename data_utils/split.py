@@ -82,7 +82,7 @@ class DatasetSplit:
         return collapse_list([i.utter_seqs() for i in self.interactions])
 
     def get_all_queries(self):
-        return collapse_list([i.utter_seqs() for i in self.interactions])
+        return collapse_list([i.query_seqs() for i in self.interactions])
 
     def str2index(self, schema_vocab, utter_vocab, query_vocab):
         for interaction in self.interactions:

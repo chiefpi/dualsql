@@ -5,28 +5,29 @@ import operator
 BOS_TOK = '<bos>' # Marks the beginning of generation.
 UNK_TOK = '<unk>' # Replaces out-of-vocabulary tokens.
 EOS_TOK = '<eos>' # Appended to the end of a sequence to indicate its end.
+PAD_TOK = '<pad>'
 DEL_TOK = ';'
 
 
 class Vocab:
-    """Contains dictionary of a corpus.
+    """Contains a dictionary.
 
     Attributes:
-        id2token (list of str): Ordered list of token types.
+        id2token (list of str): List of token types.
         token2id (dict str->int): Maps from each unique token type to its index.
     """
 
-    def __init__(self, seqs, data_type, skip=None):
+    def __init__(self, seqs, data_type, skip=[]):
 
         self.id2token = []
         self.token2id = {}
 
         if data_type == 'utter':
-            functional_types = [UNK_TOK, BOS_TOK, EOS_TOK, DEL_TOK]
+            functional_types = [PAD_TOK, UNK_TOK, BOS_TOK, EOS_TOK, DEL_TOK]
         elif data_type == 'query':
-            functional_types = [UNK_TOK, BOS_TOK, EOS_TOK]
+            functional_types = [PAD_TOK, UNK_TOK, BOS_TOK, EOS_TOK]
         elif data_type == 'schema':
-            functional_types = [UNK_TOK]
+            functional_types = [PAD_TOK, UNK_TOK]
         else:
             functional_types = []
 

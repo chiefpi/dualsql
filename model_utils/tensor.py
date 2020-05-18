@@ -4,9 +4,9 @@ def lens2mask(lens):
     """Calculates masks for lengths.
     
     Args:
-        lens (list of int): bsize
+        lens (torch.tensor): bsize
     Returns:
-        Tensor: masks of lengths, bsize x 1 x max_len
+        torch.tensor: masks of lengths, max_len x bsize
     """
     bsize = lens.numel()
     max_len = lens.max()
@@ -14,7 +14,7 @@ def lens2mask(lens):
         .type_as(lens) \
         .to(lens.device) \
         .repeat(bsize, 1) \
-        .lt(lens.unsqueeze(1))
+        .lt(lens.unsqueeze(1)).t()
     masks.requires_grad = False
 
     return masks

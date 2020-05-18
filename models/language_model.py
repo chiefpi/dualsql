@@ -3,18 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model_utils.tensor import lens2mask
-from models.modules.embedder import Embedder, load_vocab_embs
 
 
 class LanguageModel(nn.Module):
     """Language Model for utterances and queries."""
     def __init__(
             self,
-            vocab,
-            emb_file,
+            vocab_size,
+            emb_dim,
             hidden_dim,
             num_layers,
-            freeze=False,
+            pad_idx=0,
             dropout=0.5,
             tie_weights=False):
         super().__init__()
@@ -23,63 +22,51 @@ class LanguageModel(nn.Module):
         self.num_layers = num_layers
 
         self.dropout = nn.Dropout(dropout)
-        # self.embedder = nn.Embedding(vocab_size, emb_dim)
-        vocab_emb, emb_dim = load_vocab_embs(vocab, emb_file)
-        self.embedder = Embedder(
-            emb_dim,
-            init=vocab_emb,
-            vocab=vocab,
-            freeze=freeze)
-        self.rnn = nn.LSTM(
-            emb_dim,
-            hidden_dim,
-            num_layers,
-            dropout=(dropout if num_layers > 1 else 0))
-        self.decoder = nn.Linear(hidden_dim, len(vocab))
 
-        # if tie_weights:
-        #     if hidden_dim != emb_dim:
-        #         raise ValueError('When using the tied flag, hidden_dim must be equal to emb_dim')
-        #     self.decoder.weight = self.embedder.weight
+        self.embedder = torch.nn.Embedding(
+            vocab_size, emb_dim, padding_idx=pad_idx)
+
+        self.rnn = nn.LSTM(
+            emb_dim, hidden_dim, num_layers,
+            dropout=(dropout if num_layers > 1 else 0))
+        self.decoder = nn.Linear(hidden_dim, vocab_size)
+
+        if tie_weights:
+            if hidden_dim != emb_dim:
+                raise ValueError('When using the tied flag, hidden_dim must be equal to emb_dim')
+            self.decoder.weight = self.embedder.weight
 
         self.init_weights()
 
     def init_weights(self, init_range=0.1):
+        self.embedder.weight.data.uniform_(-init_range, init_range)
         self.decoder.bias.data.zero_()
         self.decoder.weight.data.uniform_(-init_range, init_range)
 
-    def init_hidden(self, batch_size):
-        weight = next(self.parameters())
-        return (weight.new_zeros(self.num_layers, batch_size, self.hidden_dim),
-            weight.new_zeros(self.num_layers, batch_size, self.hidden_dim))
-
     def forward(self, sentences):
-        emb = self.dropout(self.embedder(sentences).unsqueeze(1)) # max_len x bsize x emb_dim
+        emb = self.dropout(self.embedder(sentences)) # max_len x bsize x emb_dim
         output, _ = self.rnn(emb) # max_len x bsize x hidden_dim
         decoded = self.decoder(self.dropout(output)) # max_len x bsize x vocab_size
+        
         return F.log_softmax(decoded, dim=-1)
 
     def sentence_log_prob(self, sentences, lens):
-        """Calculates length-normalized log-probability of a batch.
+        """Calculates length-normalized log-probability for a batch.
 
         Args:
-            sentences: Sentences must contain EOS symbol. bsize x max_len.
+            sentences: Sentences must contain BOS and EOS symbol. max_len x bsize.
             lens: Lengths of sentences.
 
         Returns:
             Length-normalized log-probability.
         """
+        lens -= 1 # TODO: ?
         src, dst = sentences[:-1], sentences[1:]
         scores = self.forward(src) # max_len x bsize x vocab_size
-        print(scores.size())
-        # TODO
         log_prob = torch.gather(scores, 2, dst.unsqueeze(-1)) \
-            .contiguous().view(dst.size(0), dst.size(1))
-        print(log_prob)
-        print(lens2mask(lens))
-        print(log_prob*lens2mask(lens).float())
-        sentence_log_prob = torch.sum(log_prob*lens2mask(lens).float(), dim=-1)
-        print(sentence_log_prob)
+            .contiguous().squeeze(-1) # max_len x bsize
+        sentence_log_prob = torch.sum(log_prob*lens2mask(lens).float(), 0)
+
         return sentence_log_prob / lens.float()
 
     def load(self, filename):

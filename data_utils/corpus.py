@@ -5,6 +5,8 @@ import random
 import json
 import math
 
+import torch
+
 from data_utils.split import DatasetSplit
 from data_utils.vocab import Vocab
 from data_utils.schema import load_db_schema
@@ -35,8 +37,8 @@ class Corpus:
             db2schema)
 
         self.valid_data = DatasetSplit(
-            os.path.join(params.data_dir, 'valid.pkl'),
-            os.path.join(params.raw_data_dir, 'valid.pkl'),
+            os.path.join(params.data_dir, 'dev.pkl'),
+            os.path.join(params.raw_data_dir, 'dev.pkl'),
             db2schema)
 
         all_utter_seqs = self.train_data.get_all_utterances() + self.valid_data.get_all_utterances()
@@ -52,12 +54,12 @@ class Corpus:
         # Build vocabularies
         self.schema_vocab = Vocab(all_schema_tokens_sep, data_type='schema')
         self.utter_vocab = Vocab(all_utter_seqs, data_type='utter')
-        # Skip non-keywords
+        # Skip non-keywords, TODO: all_query_seqs is unnecessary?
         skip_tokens = list(set(all_schema_tokens) - set(sql_keywords))
         self.query_vocab = Vocab(all_query_seqs, data_type='query', skip=skip_tokens)
 
-        self.train_data.str2index()
-        self.valid_data.str2index()
+        self.train_data.str2index(self.schema_vocab, self.utter_vocab, self.query_vocab)
+        self.valid_data.str2index(self.schema_vocab, self.utter_vocab, self.query_vocab)
         # if params.data_dir == 'processed_data_sparc_removefrom_test': # TODO: what is this for
         #     all_query_seqs = []
         #     out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', \
@@ -67,138 +69,72 @@ class Corpus:
         #     for i in range(len(out_vocab_ordered)):
         #         all_query_seqs.append(out_vocab_ordered[:i+1])
 
-    def get_all_turns(
-            self,
-            dataset,
-            max_utter_len=math.inf,
-            max_query_len=math.inf):
-        """Gets all turns in a dataset.
-        
-        Returns:
-            list of Turn
-        """
 
-        return [turn for interaction in dataset.interactions
-            for turn in interaction.turns
-            if turn.len_valid(max_utter_len, max_query_len)]
+    # def get_turn_batches( # TODO
+    #         self,
+    #         batch_size,
+    #         max_utter_len=math.inf,
+    #         max_query_len=math.inf,
+    #         randomize=True):
+    #     """Gets batches of turns in the data.
 
-    def get_all_interactions(
-            self,
-            dataset,
-            max_inter_len=math.inf,
-            max_utter_len=math.inf,
-            max_query_len=math.inf,
-            sorted_by_len=False):
-        """Gets all interactions in a dataset that fit the criteria.
+    #     Args:
+    #         batch_size (int): Batch size to use.
+    #         max_utter_len (int): Maximum len of utter to keep.
+    #         max_query_len (int): Maximum len of query to use.
+    #         randomize (bool): Whether to randomize the ordering.
 
-        Args:
-            dataset (DatasetSplit): The dataset to use.
-            max_inter_len (int): Maximum interaction len to keep.
-            max_utter_len (int): Maximum utter sequence len to keep.
-            max_query_len (int): Maximum query sequence len to keep.
-            sorted_by_len (bool): Whether to sort the interactions by interaction len.
+    #     Returns:
+    #         list of list of Turn
+    #     """
+    #     turns = self.get_all_turns(
+    #         self.train_data,
+    #         max_utter_len,
+    #         max_query_len)
+    #     if randomize:
+    #         random.shuffle(turns)
 
-        Returns:
-            list of Interaction
-        """
-        interactions = [interaction for interaction in dataset.interactions
-            if len(interaction) <= max_inter_len]
-        for interaction in interactions:
-            interaction.set_valid_len(max_utter_len, max_query_len) # TODO
+    #     return [turns[i:i+batch_size]
+    #         for i in range(0, len(turns), batch_size)]
 
-        return sorted(interactions, key=len, reverse=True) if sorted_by_len else interactions
+    # def get_random_turns(
+    #         self,
+    #         num_samples,
+    #         max_utter_len=math.inf,
+    #         max_query_len=math.inf):
+    #     """Gets a random selection of turns in the data.
 
-    def get_turn_batches( # TODO
-            self,
-            batch_size,
-            max_utter_len=math.inf,
-            max_query_len=math.inf,
-            randomize=True):
-        """Gets batches of turns in the data.
+    #     Args:
+    #         num_samples (bool): Number of random turns to get.
+    #         max_utter_len (int): Limit of utter len.
+    #         max_query_len (int): Limit on query len.
+    #     """
+    #     turns = self.get_all_turns(
+    #         self.train_data,
+    #         max_utter_len,
+    #         max_query_len)
+    #     random.shuffle(turns)
 
-        Args:
-            batch_size (int): Batch size to use.
-            max_utter_len (int): Maximum len of utter to keep.
-            max_query_len (int): Maximum len of query to use.
-            randomize (bool): Whether to randomize the ordering.
+    #     return turns[:num_samples]
 
-        Returns:
-            list of list of Turn
-        """
-        turns = self.get_all_turns(
-            self.train_data,
-            max_utter_len,
-            max_query_len)
-        if randomize:
-            random.shuffle(turns)
+    # def get_random_interactions(
+    #         self,
+    #         num_samples,
+    #         max_inter_len=math.inf,
+    #         max_utter_len=math.inf,
+    #         max_query_len=math.inf):
+    #     """Gets a random selection of interactions in the data.
 
-        return [turns[i:i+batch_size]
-            for i in range(0, len(turns), batch_size)]
+    #     Args:
+    #         num_samples (bool): Number of random interactions to get.
+    #         max_utter_len (int): Limit of utter len.
+    #         max_query_len (int): Limit on query len.
+    #     """
+    #     interactions = self.get_all_interactions(
+    #         self.train_data,
+    #         max_inter_len,
+    #         max_utter_len,
+    #         max_query_len)
+    #     random.shuffle(interactions)
 
-    def get_interaction_items(
-            self,
-            max_inter_len=math.inf,
-            max_utter_len=math.inf,
-            max_query_len=math.inf,
-            randomize=True):
-        """Gets batches of interactions in the data.
-
-        Args:
-            batch_size (int): Batch size to use.
-            max_inter_len (int): Maximum len of interaction to keep
-            max_utter_len (int): Maximum len of utter to keep.
-            max_query_len (int): Maximum len of query to keep.
-            randomize (bool): Whether to randomize the ordering.
-        """
-        interactions = self.get_all_interactions(
-            self.train_data,
-            max_inter_len,
-            max_utter_len,
-            max_query_len,
-            sorted_by_len=not randomize)
-        if randomize:
-            random.shuffle(interactions)
-
-        return interactions
-
-    def get_random_turns(
-            self,
-            num_samples,
-            max_utter_len=math.inf,
-            max_query_len=math.inf):
-        """Gets a random selection of turns in the data.
-
-        Args:
-            num_samples (bool): Number of random turns to get.
-            max_utter_len (int): Limit of utter len.
-            max_query_len (int): Limit on query len.
-        """
-        items = self.get_all_turns(
-            self.train_data,
-            max_utter_len,
-            max_query_len)
-        random.shuffle(items)
-
-        return items[:num_samples]
-
-    def get_random_interactions(
-            self,
-            num_samples,
-            max_inter_len=math.inf,
-            max_utter_len=math.inf,
-            max_query_len=math.inf):
-        """Gets a random selection of interactions in the data.
-
-        Args:
-            num_samples (bool): Number of random interactions to get.
-            max_utter_len (int): Limit of utter len.
-            max_query_len (int): Limit on query len.
-        """
-        items = self.get_all_interactions(
-            self.train_data,
-            max_inter_len,
-            max_utter_len,
-            max_query_len)
-        random.shuffle(items)
-
-        return items[:num_samples]
+    #     return interactions[:num_samples]
