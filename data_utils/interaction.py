@@ -32,4 +32,9 @@ class Interaction:
     def str2index(self, schema_vocab, utter_vocab, query_vocab):
         self.schema.str2index(schema_vocab)
         for turn in self.turns:
-            turn.str2index(utter_vocab, query_vocab)
+            turn.str2index(self.schema, utter_vocab, query_vocab)
+
+    def index2str(self, schema_vocab, utter_vocab, query_vocab):
+        self.schema.index2str(schema_vocab)
+        for turn in self.turns:
+            turn.index2str(self.schema, utter_vocab, query_vocab)

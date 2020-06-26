@@ -7,6 +7,7 @@
 *.bak
 *.dump
 *.pkl
+*.pt
 misc
 glove/*
 data/*

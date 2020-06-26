@@ -23,7 +23,7 @@ python preprocess.py --dataset=sparc --remove_from
 
 ## Train
 
-Train DualSQL and two language models for utterance/query.
+Train DualSQL and language models for utterance/query.
 
 ```bash
 bash train.sh

@@ -17,8 +17,7 @@ class Vocab:
         token2id (dict str->int): Maps from each unique token type to its index.
     """
 
-    def __init__(self, seqs, data_type, skip=[]):
-
+    def __init__(self, seqs, data_type=None, skip=[]):
         self.id2token = []
         self.token2id = {}
 
@@ -47,32 +46,3 @@ class Vocab:
 
     def __len__(self):
         return len(self.id2token)
-
-    # def get_vocab(self, sequences, skip):
-    #     """Gets vocabulary from a list of sequences.
-
-    #     Inputs:
-    #         sequences (list of list of str): Sequences from which to compute the vocabulary.
-    #         skip (list of str): Tokens to skip.
-
-    #     Returns:
-    #         list of str, representing the unique token types in the vocabulary.
-    #     """
-    #     token_count = {}
-    #     for sequence in sequences:
-    #         for token in sequence:
-    #             if token not in skip:
-    #                 if token not in token_count:
-    #                     token_count[token] = 0
-    #                 token_count[token] += 1
-
-    #     # Create sorted list of tokens, by their counts.
-    #     # Reverse so it is in order of most frequent to least frequent.
-    #     sorted_count = sorted(sorted(token_count.items()),
-    #         key=operator.itemgetter(1), reverse=True)
-
-    #     vocab = [token for token, count in sorted_count
-    #         if count >= self.min_occur]
-
-    #     # Append the necessary functional tokens.
-    #     return vocab + self.functional_types

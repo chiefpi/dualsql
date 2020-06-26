@@ -1,7 +1,8 @@
 import torch
 from models.modules.embedder import Embedder
+from data_utils.vocab import Vocab
 
-embedder = Embedder(100, num_tokens=300)
+embedder = Embedder(5, Vocab([['just', 'a', 'test']], data_type='utter'), freeze=True)
 
-tokens = [0, 1, 2, 3, 4]
-print(embedder(tokens).size())
+tokens = [0, 1, 2, 3, 4, 5, 6]
+print(embedder(tokens))

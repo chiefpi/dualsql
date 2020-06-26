@@ -1,11 +1,12 @@
 import json
+from data_utils.vocab import Vocab
 
 def load_db_schema(db_schema_filename, remove_from=True):
     """Reads schema for the preprocessed dataset.
 
     Returns:
         db2schema (dict int -> Schema)
-        schema_tokens (list of str): For query vocab skip tokens.
+        schema_tokens (list of str): Actually column names. For query vocab skip tokens.
         schema_tokens_sep (list of list of str): Actually used.
     """
 
@@ -43,7 +44,7 @@ def load_db_schema(db_schema_filename, remove_from=True):
             schema_tokens_sep += [column_name.split() for _, column_name in column_names]
             schema_tokens_sep += [table_name.split() for table_name in table_names]
 
-        db_schema_dict[db_id] = Schema(schema_tokens_sep)
+        db_schema_dict[db_id] = Schema(schema_tokens_sep, schema_tokens)
         all_schema_tokens += schema_tokens
         all_schema_tokens_sep += schema_tokens_sep
 
@@ -52,19 +53,26 @@ def load_db_schema(db_schema_filename, remove_from=True):
 
 class Schema:
     """Contains a schema.
-    
+
     Attributes:
         schema_tokens_sep (list of list of str)
     """
-    def __init__(self, schema_tokens_sep):
+    def __init__(self, schema_tokens_sep, schema_tokens):
         self.type = str
         self.schema_tokens_sep = schema_tokens_sep
+        self.vocab = Vocab([schema_tokens])
+
+    def __len__(self):
+        return len(self.schema_tokens_sep)
 
     def str2index(self, schema_vocab):
         if self.type == str:
             self.schema_tokens_sep = [[schema_vocab.token2id[t] for t in token_sep]
-                    for token_sep in self.schema_tokens_sep]
+                for token_sep in self.schema_tokens_sep]
             self.type = int
 
-    def __len__(self):
-        return len(self.schema_tokens_sep)
+    def index2str(self, schema_vocab):
+        if self.type == int:
+            self.schema_tokens_sep = [[schema_vocab.id2token[i] for i in token_sep]
+                for token_sep in self.schema_tokens_sep]
+            self.type = str

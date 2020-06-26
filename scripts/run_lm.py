@@ -1,6 +1,5 @@
 """Trains and evaluates a language model for validity rewards."""
 
-import time
 import math
 import os
 import sys
@@ -111,18 +110,18 @@ def train(model, data, params):
     train_batches = get_seq_batches(data.train_data, params.batch_size, params.primal)
     valid_batches = get_seq_batches(data.valid_data, params.batch_size, params.primal)
 
-    log.info('Number of steps per epoch: {:d}'.format(len(train_batches)))
-    print('Number of steps per epoch: {:d}'.format(len(train_batches)))
-    log.info('Batch size: {:d}'.format(params.batch_size))
-    print('Batch size: {:d}'.format(params.batch_size))
+    log.info('Number of steps per epoch: {}'.format(len(train_batches)))
+    print('Number of steps per epoch: {}'.format(len(train_batches)))
+    log.info('Batch size: {}'.format(params.batch_size))
+    print('Batch size: {}'.format(params.batch_size))
 
     criterion = nn.NLLLoss()
     optimizer = optim.Adam(model.parameters(), lr=params.lr)
     best_valid_loss = None
     # Loop over epochs.
     for epoch in range(params.epochs):
-        log.info('Epoch: {:d}'.format(epoch))
-        print('Epoch: {:d}'.format(epoch))
+        log.info('Epoch: {}'.format(epoch))
+        print('Epoch: {}'.format(epoch))
 
         train_loss = train_epoch(
             model, train_batches, optimizer, criterion, params)

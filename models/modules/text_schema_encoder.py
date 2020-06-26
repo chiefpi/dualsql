@@ -7,11 +7,7 @@ from models.modules.attention import Attention
 class TextSchemaEncoder(nn.Module):
     """Encodes the text and schema using co-attention."""
 
-    def __init__(
-            self,
-            attention_key_size,
-            encoder_num_layers=1,
-            dropout=0):
+    def __init__(self, attention_key_size, encoder_num_layers=1, dropout=0):
         super().__init__()
 
         dropout = dropout if encoder_num_layers > 1 else 0
@@ -41,10 +37,7 @@ class TextSchemaEncoder(nn.Module):
             dropout=dropout,
             bidirectional=True)
 
-    def forward(
-            self,
-            schema_embs,
-            text_embs):
+    def forward(self, schema_embs, text_embs):
         """Generates column head embeddings and text token embeddings.
         
         Args:

@@ -87,3 +87,7 @@ class DatasetSplit:
     def str2index(self, schema_vocab, utter_vocab, query_vocab):
         for interaction in self.interactions:
             interaction.str2index(schema_vocab, utter_vocab, query_vocab)
+        
+    def index2str(self, schema_vocab, utter_vocab, query_vocab):
+        for interaction in self.interactions:
+            interaction.index2str(schema_vocab, utter_vocab, query_vocab)

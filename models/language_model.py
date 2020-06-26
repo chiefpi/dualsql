@@ -23,8 +23,7 @@ class LanguageModel(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-        self.embedder = torch.nn.Embedding(
-            vocab_size, emb_dim, padding_idx=pad_idx)
+        self.embedder = nn.Embedding(vocab_size, emb_dim, padding_idx=pad_idx)
 
         self.rnn = nn.LSTM(
             emb_dim, hidden_dim, num_layers,

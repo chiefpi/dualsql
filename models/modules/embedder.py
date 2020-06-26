@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from data_utils.vocab import UNK_TOK
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def load_vocab_embs(vocab, emb_file):
@@ -42,7 +42,7 @@ def load_vocab_embs(vocab, emb_file):
     
         print('Glove OOV:', glove_oov, 'Total', len(vocab))
     
-        return torch.FloatTensor(id2emb)
+        return torch.FloatTensor(id2emb, device=device)
   
     vocab_embs = create_word_embs(vocab)
   
@@ -82,7 +82,7 @@ def load_all_embs(utter_vocab, query_vocab, schema_vocab, emb_file):
     
         print('Glove OOV:', glove_oov, 'Total', len(vocab))
     
-        return id2emb
+        return torch.FloatTensor(id2emb, device=device)
   
     utter_vocab_embs = create_word_embs(utter_vocab)
     query_vocab_embs = create_word_embs(query_vocab)
@@ -92,62 +92,27 @@ def load_all_embs(utter_vocab, query_vocab, schema_vocab, emb_file):
 
 
 class Embedder(nn.Module):
-    """Embeds tokens."""
+    """Contains an embedding matrix and a vocabulary."""
 
-    def __init__(
-            self,
-            emb_size,
-            init=None,
-            vocab=None,
-            num_tokens=-1,
-            freeze=False,
-            use_unk=True):
-        super().__init__()
+    def __init__(self, emb_size, vocab, init=None, freeze=False):
+        super(Embedder, self).__init__()
 
-        if vocab:
-            assert num_tokens < 0, "Specified a vocab but also set number of tokens to " + \
-                str(num_tokens)
-            self.in_vocab = lambda token: token in vocab.tokens
-            self.vocab_token_lookup = lambda token: vocab.token_to_id(token)
-            if use_unk:
-                self.unknown_token_id = vocab.token_to_id(UNK_TOK)
-            else:
-                self.unknown_token_id = -1
-            self.vocab_size = len(vocab)
+        self.vocab = vocab
+
+        if init is None:
+            self.emb = nn.Embedding(len(vocab), emb_size)
         else:
-            def check_vocab(index):
-                """Makes sure the index is in the vocab."""
-                assert index < num_tokens, "Passed token ID " + \
-                    str(index) + "; expecting something less than " + str(num_tokens)
-                return index < num_tokens
-            self.in_vocab = check_vocab
-            self.vocab_token_lookup = lambda x: x
-            self.unknown_token_id = num_tokens  # Deliberately throws an error here,
-            # But should crash before this
-            self.vocab_size = num_tokens
+            self.emb = nn.Embedding.from_pretrained(init, freeze=freeze)
 
-        if init is not None:
-            word_embeddings_tensor = torch.FloatTensor(init)
-            self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
-                word_embeddings_tensor, freeze=freeze)
-        else:
-            init_tensor = torch.empty(self.vocab_size, emb_size).uniform_(-0.1, 0.1)
-            self.token_embedding_matrix = torch.nn.Embedding.from_pretrained(
-                init_tensor, freeze=False)
-
-    def forward(self, tokens):
+    def forward(self, ids):
         """
         Args:
-            tokens (list of int)
+            ids (list of int)
 
         Returns:
-            len x emb_dim
+            torch.FloatTensor (len x emb_dim)
         """
 
-        index_list = torch.LongTensor([self.vocab_token_lookup(token) 
-            if self.in_vocab(token) else self.unknown_token_id
-            for token in tokens])
+        index_list = torch.LongTensor(ids, device=device)
 
-        if self.token_embedding_matrix.weight.is_cuda:
-            index_list = index_list.cuda()
-        return self.token_embedding_matrix(index_list).squeeze()
+        return self.emb(index_list)

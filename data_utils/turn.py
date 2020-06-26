@@ -28,7 +28,14 @@ class Turn:
         return len(self.utter_seq) < utter_limit \
             and len(self.query_seq) < query_limit
 
-    def str2index(self, utter_vocab, query_vocab):
+    def str2index(self, schema, utter_vocab, query_vocab):
         self.utter_seq = [utter_vocab.token2id[t] for t in self.utter_seq]
+        offset = len(query_vocab)
         self.query_seq = [query_vocab.token2id[t] if t in query_vocab.token2id
-            else query_vocab.token2id[UNK_TOK] for t in self.query_seq]
+            else schema.vocab.token2id[t]+offset for t in self.query_seq] # column names
+
+    def index2str(self, schema, utter_vocab, query_vocab):
+        self.utter_seq = [utter_vocab.id2token[i] for i in self.utter_seq]
+        offset = len(query_vocab)
+        self.query_seq = [query_vocab.id2token[i] if i < offset
+            else schema.vocab.id2token[i-offset] for i in self.query_seq] # column names

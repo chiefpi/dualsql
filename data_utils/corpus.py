@@ -13,7 +13,7 @@ from data_utils.schema import load_db_schema
 
 
 class Corpus:
-    """Contains the Text-to-SQL data.
+    """Contains SParC dataset.
     
     Attributes:
         train_data (DatasetSplit)
@@ -42,99 +42,19 @@ class Corpus:
             db2schema)
 
         all_utter_seqs = self.train_data.get_all_utterances() + self.valid_data.get_all_utterances()
-        all_query_seqs = self.train_data.get_all_queries() + self.valid_data.get_all_queries()
+        # all_query_seqs = self.train_data.get_all_queries() + self.valid_data.get_all_queries()
 
-        sql_keywords = ['.', 't1', 't2', '=', 'select', 'as', 'join', 'on', ')', '(', \
-            'where', 't3', 'by', ',', 'group', 'distinct', 't4', 'and', 'limit', 'desc', \
-            '>', 'avg', 'having', 'max', 'in', '<', 'sum', 't5', 'intersect', 'not', \
-            'min', 'except', 'or', 'asc', 'like', '!', 'union', 'between', 't6', '-', \
-            't7', '+', '/', 'count', 'from', 'value', 'order', \
-            'group_by', 'order_by', 'limit_value', '!=']
+        sql_keywords = ['select', ')', '(', 'value', 'count', 'where', ',', '=', 'group_by', 'order_by', 'limit_value', 'desc', 'distinct', '>', 'avg', 'having', 'and', '<', 'asc', 'in', 'sum', 'max', 'except', 'not', 'intersect', 'or', 'min', 'like', '!=', 'union', 'between', '-', '+']
 
         # Build vocabularies
         self.schema_vocab = Vocab(all_schema_tokens_sep, data_type='schema')
         self.utter_vocab = Vocab(all_utter_seqs, data_type='utter')
-        # Skip non-keywords, TODO: all_query_seqs is unnecessary?
-        skip_tokens = list(set(all_schema_tokens) - set(sql_keywords))
-        self.query_vocab = Vocab(all_query_seqs, data_type='query', skip=skip_tokens)
+        # skip_tokens = list(set(all_schema_tokens) - set(sql_keywords)) # skip column names
+        # self.query_vocab = Vocab(all_query_seqs, data_type='query', skip=skip_tokens)
+        self.query_vocab = Vocab([sql_keywords], data_type='query')
 
         self.train_data.str2index(self.schema_vocab, self.utter_vocab, self.query_vocab)
         self.valid_data.str2index(self.schema_vocab, self.utter_vocab, self.query_vocab)
-        # if params.data_dir == 'processed_data_sparc_removefrom_test': # TODO: what is this for
-        #     all_query_seqs = []
-        #     out_vocab_ordered = ['select', 'value', ')', '(', 'where', '=', ',', 'count', \
-        #         'group_by', 'order_by', 'limit_value', 'desc', '>', 'distinct', 'avg', \
-        #         'and', 'having', '<', 'in', 'max', 'sum', 'asc', 'like', 'not', 'or', \
-        #         'min', 'intersect', 'except', '!=', 'union', 'between', '-', '+']
-        #     for i in range(len(out_vocab_ordered)):
-        #         all_query_seqs.append(out_vocab_ordered[:i+1])
 
-
-    # def get_turn_batches( # TODO
-    #         self,
-    #         batch_size,
-    #         max_utter_len=math.inf,
-    #         max_query_len=math.inf,
-    #         randomize=True):
-    #     """Gets batches of turns in the data.
-
-    #     Args:
-    #         batch_size (int): Batch size to use.
-    #         max_utter_len (int): Maximum len of utter to keep.
-    #         max_query_len (int): Maximum len of query to use.
-    #         randomize (bool): Whether to randomize the ordering.
-
-    #     Returns:
-    #         list of list of Turn
-    #     """
-    #     turns = self.get_all_turns(
-    #         self.train_data,
-    #         max_utter_len,
-    #         max_query_len)
-    #     if randomize:
-    #         random.shuffle(turns)
-
-    #     return [turns[i:i+batch_size]
-    #         for i in range(0, len(turns), batch_size)]
-
-    # def get_random_turns(
-    #         self,
-    #         num_samples,
-    #         max_utter_len=math.inf,
-    #         max_query_len=math.inf):
-    #     """Gets a random selection of turns in the data.
-
-    #     Args:
-    #         num_samples (bool): Number of random turns to get.
-    #         max_utter_len (int): Limit of utter len.
-    #         max_query_len (int): Limit on query len.
-    #     """
-    #     turns = self.get_all_turns(
-    #         self.train_data,
-    #         max_utter_len,
-    #         max_query_len)
-    #     random.shuffle(turns)
-
-    #     return turns[:num_samples]
-
-    # def get_random_interactions(
-    #         self,
-    #         num_samples,
-    #         max_inter_len=math.inf,
-    #         max_utter_len=math.inf,
-    #         max_query_len=math.inf):
-    #     """Gets a random selection of interactions in the data.
-
-    #     Args:
-    #         num_samples (bool): Number of random interactions to get.
-    #         max_utter_len (int): Limit of utter len.
-    #         max_query_len (int): Limit on query len.
-    #     """
-    #     interactions = self.get_all_interactions(
-    #         self.train_data,
-    #         max_inter_len,
-    #         max_utter_len,
-    #         max_query_len)
-    #     random.shuffle(interactions)
-
-    #     return interactions[:num_samples]
+        # self.train_data.index2str(self.schema_vocab, self.utter_vocab, self.query_vocab)
+        # self.valid_data.index2str(self.schema_vocab, self.utter_vocab, self.query_vocab)

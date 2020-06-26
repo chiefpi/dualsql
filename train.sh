@@ -17,6 +17,26 @@ CUDA_VISIBLE_DEVICES=0 python3 scripts/run_lm.py \
     --evaluate_split="valid" \
     --task_name="lm-d"
 
-# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_qg.py
-# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_sp.py
-# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_dual.py
+# supervise primal model
+CUDA_VISIBLE_DEVICES=0 python3 scripts/run_sp.py \
+    --primal \
+    --train \
+    --force \
+    --freeze \
+    --evaluate \
+    --remove_from \
+    --evaluate_split="valid" \
+    --task_name="sp"
+
+# supervise dual model
+CUDA_VISIBLE_DEVICES=0 python3 scripts/run_sp.py \
+    --train \
+    --force \
+    --freeze \
+    --evaluate \
+    --remove_from \
+    --evaluate_split="valid" \
+    --task_name="sp"
+
+# dual learning
+# CUDA_VISIBLE_DEVICES=0 python3 scripts/run_dl.py
