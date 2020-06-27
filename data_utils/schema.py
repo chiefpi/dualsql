@@ -58,21 +58,20 @@ class Schema:
         schema_tokens_sep (list of list of str)
     """
     def __init__(self, schema_tokens_sep, schema_tokens):
-        self.type = str
         self.schema_tokens_sep = schema_tokens_sep
+        self.schema_tokens_sep_id = None
         self.vocab = Vocab([schema_tokens])
 
     def __len__(self):
         return len(self.schema_tokens_sep)
 
     def str2index(self, schema_vocab):
-        if self.type == str:
-            self.schema_tokens_sep = [[schema_vocab.token2id[t] for t in token_sep]
+        if self.schema_tokens_sep_id == None:
+            self.schema_tokens_sep_id = [[schema_vocab.token2id[t] for t in token_sep]
                 for token_sep in self.schema_tokens_sep]
-            self.type = int
 
-    def index2str(self, schema_vocab):
-        if self.type == int:
-            self.schema_tokens_sep = [[schema_vocab.id2token[i] for i in token_sep]
-                for token_sep in self.schema_tokens_sep]
-            self.type = str
+    # def index2str(self, schema_vocab):
+    #     if self.type == int:
+    #         self.schema_tokens_sep = [[schema_vocab.id2token[i] for i in token_sep]
+    #             for token_sep in self.schema_tokens_sep]
+    #         self.type = str

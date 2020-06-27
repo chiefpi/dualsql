@@ -23,6 +23,12 @@ class Interaction:
     def query_seqs(self):
         return [turn.query_seq for turn in self.turns]
 
+    def utter_seqs_id(self):
+        return [turn.utter_seq_id for turn in self.turns]
+
+    def query_seqs_id(self):
+        return [turn.query_seq_id for turn in self.turns]
+
     def length_valid(self, max_utter_length, max_query_length):
         for turn in self.turns:
             if not turn.length_valid(max_utter_length, max_query_length):
@@ -34,7 +40,7 @@ class Interaction:
         for turn in self.turns:
             turn.str2index(self.schema, utter_vocab, query_vocab)
 
-    def index2str(self, schema_vocab, utter_vocab, query_vocab):
-        self.schema.index2str(schema_vocab)
-        for turn in self.turns:
-            turn.index2str(self.schema, utter_vocab, query_vocab)
+    # def index2str(self, schema_vocab, utter_vocab, query_vocab):
+    #     self.schema.index2str(schema_vocab)
+    #     for turn in self.turns:
+    #         turn.index2str(self.schema, utter_vocab, query_vocab)

@@ -71,7 +71,7 @@ def train_epoch(model, batches, optimizer, criterion, params):
     for batch in batches:
         # Forward
         optimizer.zero_grad()
-        sents = pad_sequence(batch)
+        sents = pad_sequence(batch).to(device)
 
         output = model(sents[:-1])
         vocab_size = output.size(-1)
@@ -91,7 +91,7 @@ def eval_samples(model, batches, criterion, params):
     model.eval()
     total_loss = 0.
     for batch in batches:
-        sents = pad_sequence(batch)
+        sents = pad_sequence(batch).to(device)
 
         output = model(sents[:-1])
         vocab_size = output.size(-1)
@@ -165,9 +165,8 @@ if __name__ == '__main__':
     params = get_params()
 
     data = Corpus(params)
-    vocab = data.utter_vocab if params.primal else data.query_vocab
     model = LanguageModel(
-        len(vocab),
+        len(data.utter_vocab) if params.primal else len(data.query_vocab) + len(data.schema_vocab),
         params.emb_dim,
         params.hidden_dim,
         params.num_layers,
@@ -180,6 +179,10 @@ if __name__ == '__main__':
         # assert param.is_cuda
 
     sys.stdout.flush()
+
+    checkpoint = os.path.join(params.save_dir, '{}.pt'.format(params.task_name))
+    if os.path.exists(checkpoint):
+        model.load(checkpoint)
 
     if params.train:
         train(model, data, params)

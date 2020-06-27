@@ -18,7 +18,7 @@ class DualSQL(nn.Module):
             utter_vocab,
             query_vocab,
             schema_vocab,
-            # emb_filename,
+            emb_filename,
             emb_size=300,
             encoder_state_size=300,
             encoder_num_layers=1,
@@ -168,8 +168,8 @@ class DualSQL(nn.Module):
             list of Tensor: Distributions over keywords and column names in every turn.
         """
         if primal:
-            all_input_seqs = interaction.utter_seqs()
-            all_output_seqs_gt = interaction.query_seqs()
+            all_input_seqs = interaction.utter_seqs_id()
+            all_output_seqs_gt = interaction.query_seqs_id()
             input_embedder = self.utter_embedder
             input_encoder = self.utter_encoder
             input_schema_encoder = self.utter_schema_encoder
@@ -179,8 +179,8 @@ class DualSQL(nn.Module):
             output_decoder = self.query_decoder
             output_matrix = self.sql_matrix
         else:
-            all_input_seqs = interaction.query_seqs()
-            all_output_seqs_gt = interaction.utter_seqs()
+            all_input_seqs = interaction.query_seqs_id()
+            all_output_seqs_gt = interaction.utter_seqs_id()
             input_embedder = self.query_embedder
             input_encoder = self.query_encoder
             input_schema_encoder = self.query_schema_encoder
@@ -193,16 +193,17 @@ class DualSQL(nn.Module):
         schema = interaction.schema
 
         # History
+        all_dist_seqs = []
+        all_output_seqs = []
         prev_input_embs = []
         prev_output_embs = []
-        all_dist_seqs = []
         prev_final_states_h = []
         prev_final_states_c = []
 
         # Embeds schema
         schema_embs = []
         if not self.use_bert:
-            for column_name_sep in schema.schema_tokens_sep:
+            for column_name_sep in schema.schema_tokens_sep_id:
                 sub_embs = self.column_name_token_embedder(column_name_sep).unsqueeze(1)
                 _, (column_name_emb, _) = self.schema_encoder(sub_embs)
                 schema_embs.append(column_name_emb.view(1, -1))
@@ -229,8 +230,6 @@ class DualSQL(nn.Module):
                 input_embs, _ = input_encoder(input_embs)
                 schema_embs, input_embs, final_input_state = input_schema_encoder(schema_embs, input_embs)
 
-            num_turns_to_keep = min(self.max_turns_to_keep, i+1)
-
             # 1 x batch_size x state_size
             final_input_state_h = final_input_state[0].transpose(0, 1).contiguous().view(1, -1, self.emb_size)
             final_input_state_c = final_input_state[1].transpose(0, 1).contiguous().view(1, -1, self.emb_size)
@@ -249,26 +248,30 @@ class DualSQL(nn.Module):
             prev_input_embs.append(input_embs)
             prev_final_states_h.append(final_input_state_h)
             prev_final_states_c.append(final_input_state_c)
+            prev_input_embs = prev_input_embs[:self.max_turns_to_keep]
+            prev_final_states_h = prev_final_states_h[:self.max_turns_to_keep]
+            prev_final_states_c = prev_final_states_c[:self.max_turns_to_keep]
 
             decoder_hidden = init_decoder_state_h
             decoder_state = init_decoder_state
             bos_id = output_embedder.vocab.token2id[BOS_TOK]
-            eos_id = output_embedder.vocab.token2id[EOS_TOK]
+            # eos_id = output_embedder.vocab.token2id[EOS_TOK]
             output_emb = output_embedder([bos_id]).unsqueeze(1) # 1 x batch_size x emb_size
             output_embs = [output_emb]
             dist_seqs = []
+            output_seq = [BOS_TOK]
 
             offset = len(output_embedder.vocab)
             output_seq_gt = all_output_seqs_gt[i]
-            for j in range(max_gen_len):
+            for j in range(min(len(output_seq_gt)-1, max_gen_len)):
                 if force:
-                    if j == len(output_seq_gt):
-                        break
                     index = output_seq_gt[j]
                     if index < offset:
                         output_emb = output_embedder([index]).unsqueeze(1)
+                        output_token = output_embedder.vocab.id2token[index]
                     else:
                         output_emb = schema_embs[index-offset].unsqueeze(0)
+                        output_token = schema.vocab.id2token[index-offset]
 
                 # 1 x batch_size x emb_size
                 context_schema = self.schema_attention(decoder_hidden, schema_embs)
@@ -289,23 +292,28 @@ class DualSQL(nn.Module):
                     score_col = torch.bmm(self.col_matrix(output).transpose(0, 1), schema_embs.transpose(0, 1).transpose(1, 2))
                     score = torch.cat([score, score_col], -1)
 
-                dist = F.softmax(score, -1)
+                dist = F.log_softmax(score, -1)
                 dist_seqs.append(dist)
 
                 argmax_id = torch.argmax(dist).item()
                 if argmax_id < offset:
                     output_emb = output_embedder([argmax_id]).unsqueeze(1)
+                    output_token = output_embedder.vocab.id2token[argmax_id]
                 else:
                     output_emb = schema_embs[argmax_id-offset].unsqueeze(0)
+                    output_token = schema.vocab.id2token[argmax_id-offset]
                 output_embs.append(output_emb)
+                output_seq.append(output_token)
 
-                if not force and argmax_id == eos_id:
-                    break
+                # if not force and argmax_id == eos_id:
+                #     break
 
             prev_output_embs.append(torch.cat(output_embs, 0)) # len x batch_size x emb_dim
+            prev_output_embs = prev_output_embs[:self.max_turns_to_keep]
             all_dist_seqs.append(torch.cat(dist_seqs, 0))
+            all_output_seqs.append(output_seq)
 
-        return all_dist_seqs
+        return all_dist_seqs, all_output_seqs
 
     def save(self, filename):
         torch.save(self.state_dict(), filename)

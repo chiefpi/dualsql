@@ -330,7 +330,7 @@ def postprocess_nested(format_sql_2, schema):
 
 
 def postprocess_one(pred_sql, schema):
-    pred_sql = pred_sql.replace('group_by', 'group by').replace('order_by', 'order by').replace('limit_value', 'limit 1').replace('_EOS', '').replace(' value ',' 1 ').replace('distinct', '').strip(',').strip()
+    pred_sql = pred_sql.replace('group_by', 'group by').replace('order_by', 'order by').replace('limit_value', 'limit 1').replace('<eos>', '').replace('<bos>', '').replace(' value ',' 1 ').replace('distinct', '').strip(',').strip()
     if pred_sql.endswith('value'):
         pred_sql = pred_sql[:-len('value')] + '1'
 
@@ -365,9 +365,9 @@ def postprocess(predictions, database_schema, remove_from=False):
         turn_id = pred['index_in_interaction']
         total += 1
 
-        pred_sql_str = ' '.join(pred['flat_prediction'])
+        pred_sql_str = ' '.join(pred['prediction'])
 
-        gold_sql_str = ' '.join(pred['flat_gold_queries'][0])
+        gold_sql_str = ' '.join(pred['gold_query'])
         if pred_sql_str == gold_sql_str:
             correct += 1
 
@@ -448,7 +448,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', choices=('spider', 'sparc', 'cosql'), default='sparc')
     parser.add_argument('--split', type=str, default='dev')
     parser.add_argument('--pred_file', type=str, default='')
-    parser.add_argument('--remove_from', action='store_true', default=False)
+    parser.add_argument('--remove_from', action='store_true')
     args = parser.parse_args()
 
     db_path = 'data/database/'

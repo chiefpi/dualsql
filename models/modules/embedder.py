@@ -113,6 +113,4 @@ class Embedder(nn.Module):
             torch.FloatTensor (len x emb_dim)
         """
 
-        index_list = torch.LongTensor(ids, device=device)
-
-        return self.emb(index_list)
+        return self.emb(torch.LongTensor(ids).to(device))

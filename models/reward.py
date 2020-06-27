@@ -3,12 +3,9 @@ import torch
 from data_utils.vocabulary import UNK_TOK, EOS_TOK
 from model_utils.tensor import lens2mask
 
-# TODO
 class RewardModel:
-
-    def __init__(self, utter_lm, query_lm,
-            utter_vocab, query_vocab,
-            sp_device='cpu', qg_device='cpu'):
+    
+    def __init__(self, utter_lm, query_lm, utter_vocab, query_vocab, sp_device='cpu', qg_device='cpu'):
         self.utter_lm = utter_lm.to(sp_device) # utterance language model
         self.query_lm = query_lm.to(qg_device) # query language model
         self.utter_vocab = utter_vocab
@@ -27,8 +24,7 @@ class RewardModel:
             raise ValueError('Unknown reward choice')
 
     def sp_validity_reward(self, query):
-        # calculate query language model length normalized log probability
-        input_idxs = [[self.query_vocab.token2id[BOS]] + [self.vocab.lf2id[word] if word in self.vocab.lf2id else self.vocab.lf2id[UNK] for word in sent] + [self.vocab.word2id[EOS]] for sent in queries]
+        """Calculates query language model length normalized log probability."""
         lens = [len(each) for each in input_idxs]
         max_len = max(lens)
         input_idxs = [sent + [self.vocab.lf2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
@@ -37,18 +33,11 @@ class RewardModel:
         self.query_lm.eval()
         with torch.no_grad():
             log_prob = self.query_lm.sentence_log_prob(input_tensor, lens).cpu()
-        # grammar check
-        # TODO: sql validator
-        # domain = Example.domain
-        # ans = domain.is_valid(domain.obtain_denotations(domain.normalize(queries)))
-        # grammar = torch.tensor(ans, dtype=torch.float, requires_grad=False)
-        # val_reward = 0.5 * log_prob + 0.5 * grammar
         return log_prob
 
-    def qg_validity_reward(self, utterance):
-        # calculate utterance language model length normalized log probability
-        input_idxs = [[self.vocab.word2id[BOS]] + [self.vocab.word2id[word] if word in self.vocab.word2id else self.vocab.word2id[UNK] for word in sent] + [self.vocab.word2id[EOS]] for sent in utterances]
-        lens = [len(each) for each in input_idxs]
+    def qg_validity_reward(self, utter):
+        """Calculates utterance language model length normalized log probability."""
+        lens = [len(each) for each in utter]
         max_len = max(lens)
         input_idxs = [sent + [self.vocab.word2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
         input_tensor = torch.tensor(input_idxs, dtype=torch.long, device=self.sp_device)

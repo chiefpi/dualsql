@@ -1,164 +1,181 @@
-#coding=utf8
-import os, sys, time, json
+"""Pretrains the model with labeled data."""
+
+import os
+import sys
+import random
 import argparse
-from utils.example import Example, split_dataset
-from utils.optimizer import set_optimizer
-from utils.loss import set_loss_function
-from utils.seed import set_random_seed
-from utils.logger import set_logger
-from utils.gpu import set_torch_device
-from utils.constants import *
-from utils.solver.solver_dual_learning import DualLearningSolver
-from utils.hyperparam import hyperparam_dual_learning
-from models.construct_models import construct_model as model
-from models.dual_learning import DualLearning
-from models.reward import RewardModel
-from models.language_model import LanguageModel
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from model_utils.logger import Logger
+from data_utils.batch import get_all_interactions
+from data_utils.corpus import Corpus
+from models.dualsql import DualSQL
 
 
-def optparse(args=sys.argv[1:]):
+# Set the random seed manually for reproducibility
+random.seed(0)
+np.random.seed(0)
+torch.manual_seed(0)
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+def get_params():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--task', required=True, help='pseudo method for semantic parsing')
-    parser.add_argument('--test', action='store_true', help='Only test your model (default is train && test)')
-    parser.add_argument('--dataset', required=True, help='which dataset to experiment on')
-    parser.add_argument('--read_model_path', help='Testing mode, load sp and qg model path')
-    # model paths
-    parser.add_argument('--read_sp_model_path', required=True, help='pretrained sp model')
-    parser.add_argument('--read_qg_model_path', required=True, help='pretrained qg model path')
-    parser.add_argument('--read_qlm_path', required=True, help='language model for natural language questions')
-    parser.add_argument('--read_lflm_path', required=True, help='language model for logical form')
-    # pseudo training params
-    parser.add_argument('--reduction', choices=['sum', 'mean'], default='sum')
-    parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
-    parser.add_argument('--l2', type=float, default=1e-5, help='weight decay (L2 penalty)')
-    parser.add_argument('--batchSize', type=int, default=16, help='input batch size')
-    parser.add_argument('--test_batchSize', type=int, default=128, help='input batch size in decoding')
-    parser.add_argument('--max_norm', type=float, default=5, help="threshold of gradient clipping (2-norm)")
-    parser.add_argument('--max_epoch', type=int, default=100, help='max number of epochs to train for')
-    # hyperparams
-    parser.add_argument('--sample', type=int, default=5, help='size of sampling during training in dual learning')
-    parser.add_argument('--beam', default=5, type=int, help='used during decoding time')
-    parser.add_argument('--n_best', default=1, type=int, help='used during decoding time')
-    parser.add_argument('--alpha', type=float, default=0.5, help='coefficient which combines sp valid and reconstruction reward')
-    parser.add_argument('--beta', type=float, default=0.5, help='coefficient which combines qg valid and reconstruction reward')
-    parser.add_argument('--cycle', choices=['sp', 'qg', 'sp+qg'], default='sp+qg', help='whether use cycle starts from sp/qg')
-    parser.add_argument('--labeled', type=float, default=1.0, help='ratio of labeled samples')
-    parser.add_argument('--unlabeled', type=float, default=1.0, help='ratio of unlabeled samples')
-    parser.add_argument('--deviceId', type=int, nargs=2, default=[-1, -1], help='device for semantic parsing and question generation model respectively')
-    parser.add_argument('--seed', type=int, default=0, help='set initial random seed')
-    parser.add_argument('--extra', action='store_true', help='whether use synthesized logical forms')
-    options = parser.parse_args(args)
+    # Data
+    parser.add_argument('--data_dir', type=str,
+        default='processed_sparc_data_removefrom')
+    parser.add_argument('--raw_data_dir', type=str,
+        default='data/sparc_data_removefrom')
+    parser.add_argument('--remove_from', action='store_true')
 
-    # argument checks
-    assert options.labeled > 0.
-    assert options.unlabeled >= 0. and options.unlabeled <= 1.0
-    return options
+    parser.add_argument('--db_schema_filename', type=str,
+        default='tables.json')
+    parser.add_argument('--embedding_filename', type=str,
+        default='glove/glove.840B.300d.txt')
 
-opt = optparse()
+    # Model
+    parser.add_argument('--primal', action='store_true')
+    parser.add_argument('--use_bert', action='store_true')
+    parser.add_argument('--use_editing', action='store_true')
+    parser.add_argument('--max_gen_len', type=int, default=1000)
+    parser.add_argument('--max_turns_to_keep', type=int, default=5)
+    # Training
+    parser.add_argument('--train', action='store_true')
+    parser.add_argument('--force', action='store_true')
+    parser.add_argument('--freeze', action='store_true')
+    parser.add_argument('--evaluate', action='store_true')
+    parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--epochs', type=int, default=40)
+    parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
+    # Logging
+    parser.add_argument('--save_dir', type=str, default='saved_models')
+    parser.add_argument('--pretrained', type=str)
+    parser.add_argument('--task_name', type=str, default='sp')
 
-####################### Output path, logger, device and random seed configuration #################
+    args = parser.parse_args()
 
-exp_path = opt.read_model_path if opt.testing else hyperparam_dual_learning(opt)
-if not os.path.exists(exp_path):
-    os.makedirs(exp_path)
+    return args
 
-logger = set_logger(exp_path, testing=opt.testing)
-logger.info("Parameters: " + str(json.dumps(vars(opt), indent=4)))
-logger.info("Experiment path: %s" % (exp_path))
-sp_device, qg_device = set_torch_device(opt.deviceId[0]), set_torch_device(opt.deviceId[1])
-set_random_seed(opt.seed, device='cuda')
 
-################################ Vocab and Data Reader ###########################
+def train_epoch(model, interactions, optimizer, criterion, params):
+    torch.autograd.set_detect_anomaly(True)
+    model.train()
+    epoch_loss = 0.
+    for interaction in interactions:
+        # Forward
+        optimizer.zero_grad()
 
-sp_copy, qg_copy = 'copy__' in opt.read_sp_model_path, 'copy__' in opt.read_qg_model_path
-sp_vocab, qg_vocab = Vocab(opt.dataset, task='semantic_parsing', copy=sp_copy), Vocab(opt.dataset, task='question_generation', copy=qg_copy)
-lm_vocab = Vocab(opt.dataset, task='language_model')
-logger.info("Semantic Parsing model vocabulary ...")
-logger.info("Vocab size for input natural language sentence is: %s" % (len(sp_vocab.word2id)))
-logger.info("Vocab size for output logical form is: %s" % (len(sp_vocab.lf2id)))
+        dists_seq = model(interaction, params.primal, params.max_gen_len, params.force)
+        tgt_seqs = interaction.query_seqs() if params.primal else interaction.utter_seqs()
+        losses = []
+        for dists, tgt in zip(dists_seq, tgt_seqs):
+            losses.append(criterion(dists.squeeze(), torch.LongTensor(tgt, device=device)))
+        loss = torch.sum(torch.stack(losses))
+        loss.backward()
 
-logger.info("Question Generation model vocabulary ...")
-logger.info("Vocab size for input logical form is: %s" % (len(qg_vocab.lf2id)))
-logger.info("Vocab size for output natural language sentence is: %s" % (len(qg_vocab.word2id)))
+        epoch_loss += loss.item()
+        optimizer.step()
 
-logger.info("Language model vocabulary ...")
-logger.info("Vocab size for question language model is: %s" % (len(lm_vocab.word2id)))
-logger.info("Vocab size for logical form language model is: %s" % (len(lm_vocab.lf2id)))
+    return epoch_loss / len(interactions)
 
-logger.info("Read dataset starts at %s" % (time.asctime(time.localtime(time.time()))))
-Example.set_domain(opt.dataset)
-if not opt.testing:
-    train_dataset, dev_dataset = Example.load_dataset(choice='train')
-    labeled_train_dataset, unlabeled_train_dataset = split_dataset(train_dataset, opt.labeled)
-    unlabeled_train_dataset, _ = split_dataset(unlabeled_train_dataset, opt.unlabeled)
-    unlabeled_train_dataset += labeled_train_dataset
-    if opt.extra:
-        q_unlabeled_train_dataset = unlabeled_train_dataset
-        lf_unlabeled_train_dataset = unlabeled_train_dataset + Example.load_dataset(choice='extra')
-    else:
-        q_unlabeled_train_dataset, lf_unlabeled_train_dataset = unlabeled_train_dataset, unlabeled_train_dataset
-    logger.info("Labeled/Unlabeled train dataset size is: %s and %s" % (len(labeled_train_dataset), len(lf_unlabeled_train_dataset)))
-    logger.info("Dev dataset size is: %s" % (len(dev_dataset)))
-test_dataset = Example.load_dataset(choice='test')
-logger.info("Test dataset size is: %s" % (len(test_dataset)))
 
-###################################### Model Construction ########################################
+def eval_samples(model, interactions, criterion, params):
+    model.eval()
+    total_loss = 0.
+    for interaction in interactions:
+        dists_seq = model(interaction, params.primal, params.max_gen_len)
+        tgt_seqs = interaction.query_seqs() if params.primal else interaction.utter_seqs()
+        losses = []
+        for dists, tgt in zip(dists_seq, tgt_seqs):
+            losses.append(criterion(dists.squeeze(), torch.LongTensor(tgt, device=device)))
+        loss = torch.sum(torch.stack(losses))
 
-if not opt.testing:
-    params = {
-        "read_sp_model_path": opt.read_sp_model_path, "read_qg_model_path": opt.read_qg_model_path,
-        "read_qlm_path": opt.read_qlm_path, "read_lflm_path": opt.read_lflm_path,
-        "sample": opt.sample, "alpha": opt.alpha, "beta": opt.beta, "reduction": opt.reduction
-    }
-    json.dump(params, open(os.path.join(exp_path, 'params.json'), 'w'), indent=4)
-else:
-    params = json.load(open(os.path.join(exp_path, "params.json"), 'r'))
-sp_params = json.load(open(os.path.join(params['read_sp_model_path'], 'params.json'), 'r'))
-sp_model = model(**sp_params)
-qg_params = json.load(open(os.path.join(params['read_qg_model_path'], 'params.json'), 'r'))
-qg_model = model(**qg_params)
-if not opt.testing:
-    sp_model.load_model(os.path.join(params['read_sp_model_path'], 'model.pkl'))
-    logger.info("Load Semantic Parsing model from path %s" % (params['read_sp_model_path']))
-    qg_model.load_model(os.path.join(params['read_qg_model_path'], 'model.pkl'))
-    logger.info("Load Question Generation model from path %s" % (params['read_qg_model_path']))
-    qlm_params = json.load(open(os.path.join(params['read_qlm_path'], 'params.json'), 'r'))
-    qlm_model = LanguageModel(**qlm_params)
-    qlm_model.load_model(os.path.join(params['read_qlm_path'], 'model.pkl'))
-    logger.info("Load Question Language Model from path %s" % (params['read_qlm_path']))
-    lflm_params = json.load(open(os.path.join(params['read_lflm_path'], 'params.json'), 'r'))
-    lflm_model = LanguageModel(**lflm_params)
-    lflm_model.load_model(os.path.join(params['read_lflm_path'], 'model.pkl'))
-    logger.info("Load Logical Form Language Model from path %s" % (params['read_lflm_path']))
-    reward_model = RewardModel(opt.dataset, qlm_model, lflm_model, lm_vocab, sp_device=sp_device, qg_device=qg_device)
-else:
-    sp_model.load_model(os.path.join(exp_path, 'sp_model.pkl'))
-    logger.info("Load Semantic Parsing model from path %s" % (exp_path))
-    qg_model.load_model(os.path.join(exp_path, 'qg_model.pkl'))
-    logger.info("Load Question Generation model from path %s" % (exp_path))
-    reward_model = None
-train_model = DualLearning(sp_model, qg_model, reward_model, sp_vocab, qg_vocab,
-    alpha=params['alpha'], beta=params['beta'], sample=params['sample'],
-    reduction=params["reduction"], sp_device=sp_device, qg_device=qg_device)
+        epoch_loss += loss.item()
 
-loss_function = {'sp': {}, 'qg': {}}
-loss_function['sp'] = set_loss_function(ignore_index=sp_vocab.lf2id[PAD], reduction=opt.reduction)
-loss_function['qg'] = set_loss_function(ignore_index=qg_vocab.word2id[PAD], reduction=opt.reduction)
-optimizer = set_optimizer(sp_model, qg_model, lr=opt.lr, l2=opt.l2, max_norm=opt.max_norm)
+    return total_loss / len(interactions)
 
-###################################### Training and Decoding #######################################
 
-vocab = {'sp': sp_vocab, 'qg': qg_vocab}
-device = {'sp': sp_device, 'qg': qg_device}
-solver = DualLearningSolver(train_model, vocab, loss_function, optimizer, exp_path, logger, device=device)
-if not opt.testing:
-    logger.info("Training starts at %s" % (time.asctime(time.localtime(time.time()))))
-    solver.train_and_decode(labeled_train_dataset, q_unlabeled_train_dataset, lf_unlabeled_train_dataset, dev_dataset, test_dataset,
-        batchSize=opt.batchSize, test_batchSize=opt.test_batchSize, cycle=opt.cycle,
-        max_epoch=opt.max_epoch, beam=opt.beam, n_best=opt.n_best)
-else:
-    logger.info("Testing starts at %s" % (time.asctime(time.localtime(time.time()))))
-    start_time = time.time()
-    acc, bleu = solver.decode(test_dataset, os.path.join(exp_path, 'test.eval'), opt.test_batchSize, beam=opt.beam, n_best=opt.n_best)
-    logger.info('Evaluation cost: %.4fs\tSemantic Parsing (acc : %.4f)\tQuestion Generation (bleu: %.4f)' 
-        % (time.time() - start_time, acc, bleu))
+def train(model, data, params):
+    log = Logger(20, params.task_name)
+
+    train_interactions = get_all_interactions(data.train_data)
+    valid_interactions = get_all_interactions(data.valid_data)
+
+    log.info('Number of steps per epoch: {}'.format(len(train_interactions)))
+    print('Number of steps per epoch: {}'.format(len(train_interactions)))
+
+    criterion = nn.NLLLoss()
+    optimizer = optim.Adam(model.parameters(), lr=params.lr)
+    best_valid_loss = None
+    # Loop over epochs.
+    for epoch in range(params.epochs):
+        log.info('Epoch: {}'.format(epoch))
+        print('Epoch: {}'.format(epoch))
+
+        train_loss = train_epoch(model, train_interactions, optimizer, criterion, params)
+        log.info('Training loss: {:.3f}'.format(train_loss))
+        print('Training loss: {:.3f}'.format(train_loss))
+
+        valid_loss = eval_samples(model, valid_interactions, criterion, params)
+        log.info('Validation loss: {:.3f}'.format(valid_loss))
+        print('Validation loss: {:.3f}'.format(valid_loss))
+
+        if not best_valid_loss or valid_loss < best_valid_loss:
+            model.save(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
+            best_valid_loss = valid_loss
+
+    log.info('Finished training!')
+    print('Finished training!')
+
+
+def evaluate(model, data, params, split):
+    model.load(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
+    data_split = eval('data.{}_data'.format(split))
+    interactions = get_all_interactions(data_split)
+    criterion = nn.NLLLoss()
+
+    eval_loss = eval_samples(model, interactions, criterion, params)
+    print('Evaluation loss: {:.3f}'.format(eval_loss))
+
+
+if __name__ == "__main__":
+    params = get_params()
+
+    data = Corpus(params)
+    vocab = data.utter_vocab if params.primal else data.query_vocab
+    model = DualSQL(
+        data.utter_vocab,
+        data.query_vocab,
+        data.schema_vocab,
+        params.embedding_filename,
+        freeze=params.freeze,
+        dropout=params.dropout,
+        use_editing=params.use_editing,
+        max_turns_to_keep=params.max_turns_to_keep,
+        use_bert=params.use_bert).to(device)
+
+    if params.pretrained:
+        model.load()
+
+    print('=====================Model Parameters=====================')
+    for name, param in model.named_parameters():
+        print(name, param.requires_grad, param.is_cuda, param.size())
+        # assert param.is_cuda
+
+    sys.stdout.flush()
+
+    if params.train:
+        train(model, data, params)
+    if params.evaluate and 'valid' in params.evaluate_split:
+        evaluate(model, data, params, split='valid')
+    if params.evaluate and 'dev' in params.evaluate_split:
+        evaluate(model, data, params, split='dev')
+    if params.evaluate and 'test' in params.evaluate_split:
+        evaluate(model, data, params, split='test')

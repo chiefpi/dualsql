@@ -12,3 +12,4 @@ misc
 glove/*
 data/*
 logs/*
+output_temp.txt

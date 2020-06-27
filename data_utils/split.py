@@ -81,8 +81,18 @@ class DatasetSplit:
         """
         return collapse_list([i.utter_seqs() for i in self.interactions])
 
+    def get_all_utterances_id(self):
+        """
+        Returns:
+            list of list of int
+        """
+        return collapse_list([i.utter_seqs_id() for i in self.interactions])
+
     def get_all_queries(self):
         return collapse_list([i.query_seqs() for i in self.interactions])
+
+    def get_all_queries_id(self):
+        return collapse_list([i.query_seqs_id() for i in self.interactions])
 
     def str2index(self, schema_vocab, utter_vocab, query_vocab):
         for interaction in self.interactions:
