@@ -54,7 +54,7 @@ def get_params():
     parser.add_argument('--evaluate', action='store_true')
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
     parser.add_argument('--save_dir', type=str, default='saved_models')
@@ -124,7 +124,8 @@ def train(model, data, params):
     print('Number of steps per epoch: {}'.format(len(train_interactions)))
 
     criterion = nn.NLLLoss()
-    optimizer = optim.Adam(model.parameters(), lr=params.lr)
+    lr = params.lr
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     best_valid_loss = None
     # Loop over epochs.
     for epoch in range(params.epochs):
@@ -139,9 +140,14 @@ def train(model, data, params):
         log.info('Validation loss: {:.3f}'.format(valid_loss))
         print('Validation loss: {:.3f}'.format(valid_loss))
 
+        model.save(os.path.join(params.save_dir, '{}-{}.pt'.format(params.task_name, epoch)))
         if not best_valid_loss or valid_loss < best_valid_loss:
             model.save(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
             best_valid_loss = valid_loss
+        else:
+            for param_group in optimizer.param_groups:
+                lr *= 0.8
+                param_group['lr'] = lr
 
     log.info('Finished training!')
     print('Finished training!')

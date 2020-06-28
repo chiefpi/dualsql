@@ -1,7 +1,6 @@
 """Contains the Turn class and token functions."""
 
 import nltk
-import sqlparse
 
 from data_utils.vocab import BOS_TOK, EOS_TOK, UNK_TOK
 

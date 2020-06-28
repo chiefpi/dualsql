@@ -1,6 +1,6 @@
 # DualSQL
 
-EditSQL with dual learning mechanism.
+Dual learning mechanism for SParC.
 
 ## Data Preparation
 
@@ -35,6 +35,3 @@ Calculate the question match and the interaction match.
 # etype=match
 python3 postprocess_eval.py --dataset=sparc --split=dev --pred_file results/pred.json --remove_from
 ```
-
-## Experiment Results
-

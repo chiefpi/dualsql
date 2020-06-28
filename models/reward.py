@@ -1,50 +1,33 @@
 import torch
 
+from torch.nn.utils.rnn import pad_sequence
+
 from data_utils.vocabulary import UNK_TOK, EOS_TOK
 from model_utils.tensor import lens2mask
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 class RewardModel:
     
-    def __init__(self, utter_lm, query_lm, utter_vocab, query_vocab, sp_device='cpu', qg_device='cpu'):
-        self.utter_lm = utter_lm.to(sp_device) # utterance language model
-        self.query_lm = query_lm.to(qg_device) # query language model
+    def __init__(self, utter_lm, query_lm, utter_vocab, query_vocab):
+        self.utter_lm = utter_lm.to(device) # utterance language model
+        self.query_lm = query_lm.to(device) # query language model
         self.utter_vocab = utter_vocab
         self.query_vocab = query_vocab
-        self.sp_device = sp_device
-        self.qg_device = qg_device
 
-    def forward(self, *args, choice='sp_val'):
-        if choice == 'sp_val':
-            return self.sp_validity_reward(*args)
-        elif choice == 'qg_val':
-            return self.qg_validity_reward(*args)
-        elif 'rec' in choice:
-            return self.reconstruction_reward(*args)
-        else:
-            raise ValueError('Unknown reward choice')
-
-    def sp_validity_reward(self, query):
+    def validity_reward(self, seqs, primal):
         """Calculates query language model length normalized log probability."""
-        lens = [len(each) for each in input_idxs]
-        max_len = max(lens)
-        input_idxs = [sent + [self.vocab.lf2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
-        input_tensor = torch.tensor(input_idxs, dtype=torch.long, device=self.qg_device)
-        lens = torch.tensor(lens, dtype=torch.long, device=self.qg_device)
-        self.query_lm.eval()
-        with torch.no_grad():
-            log_prob = self.query_lm.sentence_log_prob(input_tensor, lens).cpu()
-        return log_prob
+        lens = [seq.size(0) for seq in seqs]
+        seqs = pad_sequence(seqs).to(device)
+        seqs_tensor = torch.LongTensor(seqs).to(device)
+        lens = torch.LongTensor(lens).to(device)
 
-    def qg_validity_reward(self, utter):
-        """Calculates utterance language model length normalized log probability."""
-        lens = [len(each) for each in utter]
-        max_len = max(lens)
-        input_idxs = [sent + [self.vocab.word2id[PAD]] * (max_len - len(sent)) for sent in input_idxs]
-        input_tensor = torch.tensor(input_idxs, dtype=torch.long, device=self.sp_device)
-        lens = torch.tensor(lens, dtype=torch.long, device=self.sp_device)
-        self.utter_lm.eval()
+        lm = self.query_lm if primal else self.utter_lm
+        lm.eval()
         with torch.no_grad():
-            log_prob = self.utter_lm.sentence_log_prob(input_tensor, lens).cpu()
+            log_prob = lm.sentence_log_prob(seqs_tensor, lens)
+
         return log_prob
 
     def reconstruction_reward(self, log_scores, references, lens):
@@ -60,7 +43,5 @@ class RewardModel:
         pick_score = torch.gather(log_scores, dim=-1, index=references.unsqueeze(-1)).squeeze(-1)
         masked_score = mask.float() * pick_score
         reward = masked_score.sum(dim=1)
-        return reward
 
-    def __call__(self, *args, **kargs):
-        return self.forward(*args, **kargs)
+        return reward

@@ -34,7 +34,7 @@ def load_vocab_embs(vocab, emb_file):
         id2emb = np.zeros((len(vocab), glove_emb_dim), dtype=np.float32)
     
         glove_oov = 0
-        for index, token in vocab.id2token:
+        for index, token in enumerate(vocab.id2token):
             if token in glove_embs:
                 id2emb[index] = glove_embs[token]
             else:
@@ -42,7 +42,7 @@ def load_vocab_embs(vocab, emb_file):
     
         print('Glove OOV:', glove_oov, 'Total', len(vocab))
     
-        return torch.FloatTensor(id2emb, device=device)
+        return torch.FloatTensor(id2emb).to(device)
   
     vocab_embs = create_word_embs(vocab)
   
@@ -74,7 +74,7 @@ def load_all_embs(utter_vocab, query_vocab, schema_vocab, emb_file):
         id2emb = np.zeros((len(vocab), glove_emb_dim), dtype=np.float32)
     
         glove_oov = 0
-        for index, token in vocab.id2token:
+        for index, token in enumerate(vocab.id2token):
             if token in glove_embs:
                 id2emb[index] = glove_embs[token]
             else:
@@ -82,7 +82,7 @@ def load_all_embs(utter_vocab, query_vocab, schema_vocab, emb_file):
     
         print('Glove OOV:', glove_oov, 'Total', len(vocab))
     
-        return torch.FloatTensor(id2emb, device=device)
+        return torch.FloatTensor(id2emb).to(device)
   
     utter_vocab_embs = create_word_embs(utter_vocab)
     query_vocab_embs = create_word_embs(query_vocab)

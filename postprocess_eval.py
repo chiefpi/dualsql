@@ -330,6 +330,10 @@ def postprocess_nested(format_sql_2, schema):
 
 
 def postprocess_one(pred_sql, schema):
+    if pred_sql.find('<eos>') != -1:
+    #     print(pred_sql + '@')
+        pred_sql = pred_sql[:pred_sql.find('<eos>')].rstrip()
+        # print(pred_sql + '@')
     pred_sql = pred_sql.replace('group_by', 'group by').replace('order_by', 'order by').replace('limit_value', 'limit 1').replace('<eos>', '').replace('<bos>', '').replace(' value ',' 1 ').replace('distinct', '').strip(',').strip()
     if pred_sql.endswith('value'):
         pred_sql = pred_sql[:-len('value')] + '1'

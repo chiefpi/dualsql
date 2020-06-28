@@ -1,4 +1,4 @@
-# primal lm
+# utterance lm
 python3 scripts/run_lm.py \
     --primal \
     --train \
@@ -6,16 +6,16 @@ python3 scripts/run_lm.py \
     --remove_from \
     --tie_weights \
     --evaluate_split="valid" \
-    --task_name="lm-p"
+    --task_name="lm-u"
 
-# dual lm
+# query lm
 python3 scripts/run_lm.py \
     --train \
     --evaluate \
     --remove_from \
     --tie_weights \
     --evaluate_split="valid" \
-    --task_name="lm-d"
+    --task_name="lm-q"
 
 # supervise primal model
 python3 scripts/run_sp.py \
@@ -26,6 +26,7 @@ python3 scripts/run_sp.py \
     --evaluate \
     --remove_from \
     --evaluate_split="valid" \
+    --pred_file="results/sp.json" \
     --task_name="dual"
 
 # supervise dual model
@@ -36,6 +37,7 @@ python3 scripts/run_sp.py \
     --evaluate \
     --remove_from \
     --evaluate_split="valid" \
+    --pred_file="results/qg.json" \
     --task_name="dual"
 
 # dual learning

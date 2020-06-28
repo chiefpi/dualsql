@@ -5,6 +5,7 @@ import sys
 import random
 import argparse
 
+# from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -15,6 +16,7 @@ from model_utils.logger import Logger
 from data_utils.batch import get_all_interactions
 from data_utils.corpus import Corpus
 from models.dualsql import DualSQL
+from model_utils.prediction import write_prediction
 
 
 # Set the random seed manually for reproducibility
@@ -40,24 +42,22 @@ def get_params():
         default='glove/glove.840B.300d.txt')
 
     # Model
-    parser.add_argument('--primal', action='store_true')
     parser.add_argument('--use_bert', action='store_true')
     parser.add_argument('--use_editing', action='store_true')
     parser.add_argument('--max_gen_len', type=int, default=1000)
     parser.add_argument('--max_turns_to_keep', type=int, default=5)
     # Training
     parser.add_argument('--train', action='store_true')
-    parser.add_argument('--force', action='store_true')
     parser.add_argument('--freeze', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--epochs', type=int, default=40)
+    parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--evaluate_split', choices=['valid', 'dev', 'test'])
     # Logging
     parser.add_argument('--save_dir', type=str, default='saved_models')
-    parser.add_argument('--pretrained', type=str)
-    parser.add_argument('--task_name', type=str, default='sp')
+    parser.add_argument('--pred_file', type=str, default='results/pred.json')
+    parser.add_argument('--task_name', type=str, default='dual')
 
     args = parser.parse_args()
 
@@ -65,18 +65,17 @@ def get_params():
 
 
 def train_epoch(model, interactions, optimizer, criterion, params):
-    torch.autograd.set_detect_anomaly(True)
     model.train()
     epoch_loss = 0.
     for interaction in interactions:
         # Forward
         optimizer.zero_grad()
 
-        dists_seq = model(interaction, params.primal, params.max_gen_len, params.force)
-        tgt_seqs = interaction.query_seqs() if params.primal else interaction.utter_seqs()
+        dists_seq, _ = model(interaction, True, params.max_gen_len)
+        tgt_seqs = interaction.query_seqs_id() if params.primal else interaction.utter_seqs_id()
         losses = []
         for dists, tgt in zip(dists_seq, tgt_seqs):
-            losses.append(criterion(dists.squeeze(), torch.LongTensor(tgt, device=device)))
+            losses.append(criterion(dists.squeeze(), torch.LongTensor(tgt[1:]).to(device)))
         loss = torch.sum(torch.stack(losses))
         loss.backward()
 
@@ -86,18 +85,29 @@ def train_epoch(model, interactions, optimizer, criterion, params):
     return epoch_loss / len(interactions)
 
 
-def eval_samples(model, interactions, criterion, params):
+def eval_samples(model, interactions, criterion, predictions_file, params):
     model.eval()
     total_loss = 0.
     for interaction in interactions:
-        dists_seq = model(interaction, params.primal, params.max_gen_len)
+        dists_seq, output_seqs = model(interaction, params.primal, params.max_gen_len)
+        src_seqs = interaction.utter_seqs() if params.primal else interaction.query_seqs()
         tgt_seqs = interaction.query_seqs() if params.primal else interaction.utter_seqs()
+        tgt_seqs_id = interaction.query_seqs_id() if params.primal else interaction.utter_seqs_id()
         losses = []
-        for dists, tgt in zip(dists_seq, tgt_seqs):
-            losses.append(criterion(dists.squeeze(), torch.LongTensor(tgt, device=device)))
+        for i in range(len(src_seqs)):
+            losses.append(criterion(dists_seq[i].squeeze(), torch.LongTensor(tgt_seqs_id[i][1:]).to(device)))
+            if predictions_file:
+                write_prediction(
+                    predictions_file,
+                    identifier=interaction.identifier,
+                    input_seq=src_seqs[i][1:-1],
+                    prediction=output_seqs[i][1:-1],
+                    gold_query=tgt_seqs[i][1:-1],
+                    index_in_interaction=i)
+                    
         loss = torch.sum(torch.stack(losses))
 
-        epoch_loss += loss.item()
+        total_loss += loss.item()
 
     return total_loss / len(interactions)
 
@@ -123,12 +133,12 @@ def train(model, data, params):
         log.info('Training loss: {:.3f}'.format(train_loss))
         print('Training loss: {:.3f}'.format(train_loss))
 
-        valid_loss = eval_samples(model, valid_interactions, criterion, params)
+        valid_loss = eval_samples(model, valid_interactions, criterion, None, params)
         log.info('Validation loss: {:.3f}'.format(valid_loss))
         print('Validation loss: {:.3f}'.format(valid_loss))
 
         if not best_valid_loss or valid_loss < best_valid_loss:
-            model.save(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
+            model.save(os.path.join(params.save_dir, '{}-rl.pt'.format(params.task_name)))
             best_valid_loss = valid_loss
 
     log.info('Finished training!')
@@ -136,12 +146,13 @@ def train(model, data, params):
 
 
 def evaluate(model, data, params, split):
-    model.load(os.path.join(params.save_dir, '{}.pt'.format(params.task_name)))
+    model.load(os.path.join(params.save_dir, '{}-rl.pt'.format(params.task_name)))
     data_split = eval('data.{}_data'.format(split))
     interactions = get_all_interactions(data_split)
     criterion = nn.NLLLoss()
 
-    eval_loss = eval_samples(model, interactions, criterion, params)
+    with open(params.pred_file, 'w') as f:
+        eval_loss = eval_samples(model, interactions, criterion, f, params)
     print('Evaluation loss: {:.3f}'.format(eval_loss))
 
 
@@ -161,15 +172,16 @@ if __name__ == "__main__":
         max_turns_to_keep=params.max_turns_to_keep,
         use_bert=params.use_bert).to(device)
 
-    if params.pretrained:
-        model.load()
-
     print('=====================Model Parameters=====================')
     for name, param in model.named_parameters():
         print(name, param.requires_grad, param.is_cuda, param.size())
         # assert param.is_cuda
 
     sys.stdout.flush()
+
+    checkpoint = os.path.join(params.save_dir, '{}.pt'.format(params.task_name))
+    if os.path.exists(checkpoint):
+        model.load(checkpoint)
 
     if params.train:
         train(model, data, params)
